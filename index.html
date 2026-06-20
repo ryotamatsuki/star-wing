@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>STAR WING</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; overflow: hidden; }
+    #game { display: block; }
+    #hud {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+      font-family: 'Courier New', monospace;
+      color: #fff;
+    }
+    #score-display {
+      position: absolute;
+      top: 16px; left: 16px;
+      font-size: 20px;
+      text-shadow: 0 0 6px #0ff;
+    }
+    #stage-display {
+      position: absolute;
+      top: 16px; right: 16px;
+      font-size: 20px;
+      text-shadow: 0 0 6px #ff8;
+    }
+    #shield-container {
+      position: absolute;
+      bottom: 24px; left: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    #shield-label { font-size: 14px; }
+    #shield-bar-bg {
+      width: 160px; height: 14px;
+      background: #333;
+      border: 1px solid #888;
+    }
+    #shield-bar {
+      height: 100%;
+      width: 100%;
+      background: #0f8;
+      transition: width 0.15s, background 0.15s;
+    }
+    #shield-bar.danger { background: #f40; }
+    #message {
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+      font-size: 36px;
+      text-shadow: 0 0 12px #fff;
+      white-space: pre-line;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <div id="hud">
+    <div id="score-display">SCORE: <span id="score">0</span></div>
+    <div id="stage-display">STAGE <span id="stage">1</span></div>
+    <div id="shield-container">
+      <span id="shield-label">SHIELD</span>
+      <div id="shield-bar-bg"><div id="shield-bar"></div></div>
+    </div>
+    <div id="message"></div>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
