@@ -5,6 +5,7 @@ import { initBullets } from './bullets';
 import { initEnemies } from './enemies';
 import { initEffects } from './effects';
 import { initItems } from './items';
+import { initTouchControls } from './touch';
 import { Game } from './game';
 
 // ─── シーン・カメラ・レンダラー ───────────────────────────────────────────────
@@ -34,6 +35,10 @@ initEffects(scene);
 initItems(scene);
 const player = createPlayer(scene);
 initEnemies(scene, () => {});
+
+// タッチ端末向けの画面操作UI(PCでは表示されない)。タイトル表示前に有効化する
+initTouchControls();
+
 const game = new Game(player, camera, scene);
 
 // ─── ウィンドウリサイズ ────────────────────────────────────────────────────────

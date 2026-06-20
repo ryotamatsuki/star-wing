@@ -2,11 +2,20 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <title>STAR WING</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: #000; overflow: hidden; }
+    html, body {
+      background: #000;
+      overflow: hidden;
+      position: fixed;
+      width: 100%; height: 100%;
+      touch-action: none;             /* スクロール・ピンチズーム抑止 */
+      -webkit-user-select: none; user-select: none;
+      -webkit-touch-callout: none;
+      -webkit-tap-highlight-color: transparent;
+    }
     #game { display: block; }
     #hud {
       position: absolute;
@@ -56,6 +65,72 @@
       font-size: 36px;
       text-shadow: 0 0 12px #fff;
       white-space: pre-line;
+    }
+
+    /* ─── タッチ操作UI(タッチ端末のみ表示) ─────────────────────────────── */
+    #touch-controls { display: none; }
+    body.touch-mode #touch-controls {
+      display: block;
+      position: absolute;
+      inset: 0;
+      pointer-events: none;           /* 子要素だけ操作を受ける */
+      z-index: 10;
+      font-family: 'Courier New', monospace;
+    }
+    .touch-stick {
+      position: absolute;
+      left: max(20px, env(safe-area-inset-left));
+      bottom: max(24px, env(safe-area-inset-bottom));
+      width: 132px; height: 132px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.10);
+      border: 2px solid rgba(255,255,255,0.35);
+      pointer-events: auto;
+      touch-action: none;
+    }
+    .touch-knob {
+      position: absolute;
+      left: 50%; top: 50%;
+      width: 58px; height: 58px;
+      margin: -29px 0 0 -29px;
+      border-radius: 50%;
+      background: rgba(120,220,255,0.55);
+      border: 2px solid rgba(255,255,255,0.7);
+      transition: transform 0.05s linear;
+    }
+    .touch-btn {
+      position: absolute;
+      display: flex; align-items: center; justify-content: center;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.12);
+      border: 2px solid rgba(255,255,255,0.4);
+      color: #fff;
+      pointer-events: auto;
+      touch-action: none;
+      user-select: none;
+    }
+    .touch-btn.pressed { background: rgba(120,220,255,0.5); }
+    .touch-fire {
+      right: max(24px, env(safe-area-inset-right));
+      bottom: max(32px, env(safe-area-inset-bottom));
+      width: 104px; height: 104px;
+      font-size: 20px; font-weight: bold;
+      letter-spacing: 1px;
+      text-shadow: 0 0 8px #0ff;
+    }
+    .touch-roll-l, .touch-roll-r {
+      width: 60px; height: 60px;
+      font-size: 30px;
+      bottom: calc(48px + env(safe-area-inset-bottom));
+    }
+    .touch-roll-r { right: calc(150px + env(safe-area-inset-right)); }
+    .touch-roll-l { right: calc(150px + env(safe-area-inset-right)); bottom: calc(120px + env(safe-area-inset-bottom)); }
+    .touch-view {
+      top: 52px; right: max(16px, env(safe-area-inset-right));
+      width: auto; height: 34px;
+      padding: 0 14px;
+      border-radius: 17px;
+      font-size: 14px; font-weight: bold;
     }
   </style>
 </head>

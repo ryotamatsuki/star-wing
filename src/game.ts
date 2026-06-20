@@ -17,6 +17,16 @@ import { setScore, setShield, setStage, showMessage, hideMessage, updateHUD, tri
 import { updateObstacles, getObstacles, resetObstacles, setStageTheme, setSceneBackground } from './terrain';
 import { updateItems, getItems, resetItems, ITEM_RADIUS, HEAL_AMOUNT } from './items';
 import { sfxLaser, sfxExplosion, sfxHit, sfxWarning, sfxClear, sfxShieldLow, sfxPickup } from './audio';
+import { isTouchActive } from './touch';
+
+// タイトル画面の操作説明(キーボード / タッチで切替)
+const TITLE_MSG = () =>
+  isTouchActive()
+    ? 'STAR WING\n\n[ FIRE ] START\n[ VIEW ] 視点切替'
+    : 'STAR WING\n\n[ SPACE ] START\n[ V ] VIEW';
+
+// 「タイトルへ戻る」操作の表記
+const BACK_KEY = () => (isTouchActive() ? '[ FIRE ] TITLE' : '[ SPACE ] TITLE');
 
 const MAX_SHIELD    = 100;
 const PLAYER_RADIUS = 1.5;
@@ -62,7 +72,7 @@ export class Game {
     this.muzzleFlash.visible = false;
     scene.add(this.muzzleFlash);
 
-    showMessage('STAR WING\n\n[ SPACE ] START\n[ V ] VIEW');
+    showMessage(TITLE_MSG());
     setShield(MAX_SHIELD, MAX_SHIELD);
     setScore(0);
     setStage(1);
@@ -230,7 +240,7 @@ export class Game {
       this.state = 'clear';
       setTimeout(() => {
         sfxClear();
-        showMessage(`MISSION COMPLETE!\n\nFINAL SCORE: ${this.score}\n\n[ SPACE ] TITLE`);
+        showMessage(`MISSION COMPLETE!\n\nFINAL SCORE: ${this.score}\n\n${BACK_KEY()}`);
       }, 500);
     }
   }
@@ -358,7 +368,7 @@ export class Game {
       spawnExplosion(this.player.group.position.clone(), 20, 0xff6600);
       sfxExplosion(true);
       this.state = 'gameover';
-      showMessage(`GAME OVER\n\nSCORE: ${this.score}\n\n[ SPACE ] TITLE`);
+      showMessage(`GAME OVER\n\nSCORE: ${this.score}\n\n${BACK_KEY()}`);
     }
   }
 
@@ -416,6 +426,6 @@ export class Game {
     clearBullets();
     clearEffects();
     this.player.reset();
-    showMessage('STAR WING\n\n[ SPACE ] START\n[ V ] VIEW');
+    showMessage(TITLE_MSG());
   }
 }

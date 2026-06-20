@@ -47,6 +47,7 @@ export function createPlayer(scene: THREE.Scene): Player {
   // バレルロール
   let rollTimer   = 0;
   let isRolling   = false;
+  let rollDir     = -1;   // -1: 左回り, +1: 右回り
   let totalTime   = 0;
 
   // ダブルタップ検出用:前フレームのキー状態
@@ -54,6 +55,18 @@ export function createPlayer(scene: THREE.Scene): Player {
   let prevRight = false;
   let lastLeftReleased  = -99;
   let lastRightReleased = -99;
+
+  // バレルロール発動(ダブルタップ・タッチボタン共通)
+  function roll(dir: number): void {
+    if (isRolling) return;
+    isRolling = true;
+    rollTimer = BARREL_DURATION;
+    rollDir   = dir;
+    sfxBarrel();
+  }
+
+  // タッチUIのロールボタンから発火
+  addEventListener('game:roll', e => roll((e as CustomEvent<number>).detail));
 
   function update(dt: number, camera: THREE.Camera): void {
     totalTime += dt;
@@ -72,12 +85,10 @@ export function createPlayer(scene: THREE.Scene): Player {
       if (prevRight && !right) lastRightReleased = totalTime;
 
       if (!prevLeft  && left  && totalTime - lastLeftReleased  < BARREL_WINDOW) {
-        isRolling = true; rollTimer = BARREL_DURATION; lastLeftReleased  = -99;
-        sfxBarrel();
+        lastLeftReleased = -99; roll(-1);
       }
       if (!prevRight && right && totalTime - lastRightReleased < BARREL_WINDOW) {
-        isRolling = true; rollTimer = BARREL_DURATION; lastRightReleased = -99;
-        sfxBarrel();
+        lastRightReleased = -99; roll(1);
       }
     }
 
@@ -99,7 +110,7 @@ export function createPlayer(scene: THREE.Scene): Player {
     if (isRolling) {
       rollTimer -= dt;
       const progress = 1 - rollTimer / BARREL_DURATION;
-      group.rotation.z = -Math.PI * 2 * progress;
+      group.rotation.z = rollDir * -Math.PI * 2 * progress;
       if (rollTimer <= 0) {
         isRolling = false;
         rollTimer = 0;
