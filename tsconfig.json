@@ -5,6 +5,7 @@
     "moduleResolution": "bundler",
     "strict": true,
     "noUnusedLocals": true,
+    "noEmit": true,
     "noUnusedParameters": true
   },
   "include": ["src"]

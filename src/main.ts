@@ -5,7 +5,7 @@ import { initBullets } from './bullets';
 import { initEnemies } from './enemies';
 import { initEffects } from './effects';
 import { initItems } from './items';
-import { initTouchControls } from './touch';
+import { initTouchControls, isTouchDevice } from './touch';
 import { Game } from './game';
 
 // ─── シーン・カメラ・レンダラー ───────────────────────────────────────────────
@@ -18,9 +18,11 @@ camera.position.set(0, 7, 22);
 camera.lookAt(0, 2, 0);
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
+const touchPlatform = isTouchDevice();
+const maxPixelRatio = touchPlatform ? 1.5 : 2;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
 renderer.setSize(innerWidth, innerHeight);
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(devicePixelRatio, maxPixelRatio));
 
 // ─── ライト ───────────────────────────────────────────────────────────────────
 const sun = new THREE.DirectionalLight(0xffffff, 2.5);
@@ -46,6 +48,7 @@ addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
+  renderer.setPixelRatio(Math.min(devicePixelRatio, maxPixelRatio));
 });
 
 // ─── ゲームループ ─────────────────────────────────────────────────────────────

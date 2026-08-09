@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { isDown } from './input';
+import { getMoveInput, isDown } from './input';
 import { createPlayerShip } from './models';
 import { sfxBarrel } from './audio';
 
@@ -76,8 +76,6 @@ export function createPlayer(scene: THREE.Scene): Player {
 
     const left  = isDown('ArrowLeft')  || isDown('KeyA');
     const right = isDown('ArrowRight') || isDown('KeyD');
-    const up    = isDown('ArrowUp')    || isDown('KeyW');
-    const down  = isDown('ArrowDown')  || isDown('KeyS');
 
     // ── バレルロール:キーを一度離して再度押したら発動 ─────────────────────
     if (!isRolling) {
@@ -96,8 +94,10 @@ export function createPlayer(scene: THREE.Scene): Player {
     prevRight = right;
 
     // ── 移動 ───────────────────────────────────────────────────────────────
-    const targetVx = (right ? SPEED_X : 0) - (left ? SPEED_X : 0);
-    const targetVy = (up    ? SPEED_Y : 0) - (down ? SPEED_Y : 0);
+    // The touch stick supplies a continuous value; keyboard input still resolves to -1/0/1.
+    const move = getMoveInput();
+    const targetVx = move.x * SPEED_X;
+    const targetVy = move.y * SPEED_Y;
     vel.x += (targetVx - vel.x) * LERP_MOVE * dt;
     vel.y += (targetVy - vel.y) * LERP_MOVE * dt;
 

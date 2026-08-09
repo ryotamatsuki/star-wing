@@ -1,132 +1,231 @@
-import { setVirtual } from './input';
+import {
+  clearInputState,
+  getAnalogMove,
+  isAutoFireEnabled,
+  setAnalogMove,
+  setAutoFireEnabled,
+  setVirtual,
+} from './input';
 
-// タッチ操作UIが有効かどうか(タイトルの操作説明切替などに使用)
+const STICK_DIAMETER = 128;
+const STICK_RADIUS = STICK_DIAMETER / 2;
+const STICK_DEADZONE = 0.04;
+const STICK_ACTIVE_THRESHOLD = 0.1;
+
 let touchActive = false;
 export const isTouchActive = (): boolean => touchActive;
 
-// タッチ端末かどうか(?touch を付ければPCでも強制表示してテスト可能)
-function isTouchDevice(): boolean {
+export function isTouchDevice(): boolean {
   if (location.search.includes('touch')) return true;
   return matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0;
 }
 
-// ボタン要素を生成(押下中に down/up コールバックを呼ぶ)
 function makeButton(
-  cls: string, label: string,
-  onDown: () => void, onUp: () => void = () => {},
+  cls: string,
+  label: string,
+  onDown: () => void,
+  onUp: () => void = () => {},
+  registerReset?: (reset: () => void) => void,
 ): HTMLDivElement {
   const el = document.createElement('div');
   el.className = `touch-btn ${cls}`;
   el.textContent = label;
-  let active = false;
+  el.setAttribute('role', 'button');
+  el.setAttribute('aria-label', label);
 
-  const press = (e: PointerEvent) => {
+  let activePointerId: number | null = null;
+  const releaseActive = (): void => {
+    if (activePointerId === null) return;
+    activePointerId = null;
+    el.classList.remove('pressed');
+    onUp();
+  };
+
+  const press = (e: PointerEvent): void => {
     e.preventDefault();
-    if (active) return;
-    active = true;
+    if (activePointerId !== null) return;
+    activePointerId = e.pointerId;
+    try { el.setPointerCapture(e.pointerId); } catch { /* Safari can reject a late capture. */ }
     el.classList.add('pressed');
     onDown();
   };
-  const release = (e: PointerEvent) => {
+
+  const release = (e: PointerEvent): void => {
+    if (e.pointerId !== activePointerId) return;
     e.preventDefault();
-    if (!active) return;
-    active = false;
-    el.classList.remove('pressed');
-    onUp();
+    releaseActive();
   };
 
   el.addEventListener('pointerdown', press);
   el.addEventListener('pointerup', release);
   el.addEventListener('pointercancel', release);
-  el.addEventListener('pointerleave', release);
+  el.addEventListener('lostpointercapture', releaseActive);
+  registerReset?.(releaseActive);
   return el;
 }
 
 export function initTouchControls(): void {
-  if (!isTouchDevice()) return;
+  if (!isTouchDevice() || touchActive) return;
 
   touchActive = true;
+  setAutoFireEnabled(true);
   document.body.classList.add('touch-mode');
 
   const root = document.createElement('div');
   root.id = 'touch-controls';
 
-  // ── 左: 仮想アナログスティック(移動) ──────────────────────────────────────
+  const moveZone = document.createElement('div');
+  moveZone.className = 'touch-move-zone';
+  moveZone.setAttribute('aria-label', 'Move');
+
   const stick = document.createElement('div');
   stick.className = 'touch-stick';
+  stick.style.width = `${STICK_DIAMETER}px`;
+  stick.style.height = `${STICK_DIAMETER}px`;
   const knob = document.createElement('div');
   knob.className = 'touch-knob';
   stick.appendChild(knob);
 
-  const DEAD = 0.32;          // デッドゾーン(半径比)
-  let stickPid = -1;
-  let cx = 0, cy = 0, radius = 60;
+  let stickPointerId: number | null = null;
+  let centerX = 0;
+  let centerY = 0;
+  let pointerX = 0;
+  let pointerY = 0;
+  let lastRollDirection = 1;
 
-  const clearMove = () => {
-    setVirtual('ArrowLeft', false);
-    setVirtual('ArrowRight', false);
-    setVirtual('ArrowUp', false);
-    setVirtual('ArrowDown', false);
+  const placeStick = (x: number, y: number): void => {
+    const width = document.documentElement.clientWidth || innerWidth;
+    const height = document.documentElement.clientHeight || innerHeight;
+    const left = Math.max(0, Math.min(width - STICK_DIAMETER, x - STICK_RADIUS));
+    const top = Math.max(0, Math.min(height - STICK_DIAMETER, y - STICK_RADIUS));
+    stick.style.left = `${left}px`;
+    stick.style.top = `${top}px`;
   };
 
-  const applyMove = (dx: number, dy: number) => {
-    const nx = dx / radius;       // -1〜1
-    const ny = dy / radius;
-    setVirtual('ArrowLeft',  nx < -DEAD);
-    setVirtual('ArrowRight', nx >  DEAD);
-    setVirtual('ArrowUp',    ny < -DEAD);   // 画面上方向 = 上昇
-    setVirtual('ArrowDown',  ny >  DEAD);
-  };
+  const applyMove = (dx: number, dy: number): void => {
+    const distance = Math.hypot(dx, dy);
+    if (distance > STICK_RADIUS) {
+      dx = dx / distance * STICK_RADIUS;
+      dy = dy / distance * STICK_RADIUS;
+    }
 
-  stick.addEventListener('pointerdown', e => {
-    e.preventDefault();
-    stickPid = e.pointerId;
-    stick.setPointerCapture(e.pointerId);
-    const r = stick.getBoundingClientRect();
-    cx = r.left + r.width / 2;
-    cy = r.top + r.height / 2;
-    radius = r.width / 2;
-  });
+    const nx = dx / STICK_RADIUS;
+    const ny = dy / STICK_RADIUS;
+    if (Math.hypot(nx, ny) < STICK_DEADZONE) {
+      setAnalogMove(0, 0);
+      knob.style.transform = 'translate(0, 0)';
+      return;
+    }
 
-  stick.addEventListener('pointermove', e => {
-    if (e.pointerId !== stickPid) return;
-    e.preventDefault();
-    let dx = e.clientX - cx;
-    let dy = e.clientY - cy;
-    const dist = Math.hypot(dx, dy);
-    const max = radius;
-    if (dist > max) { dx = dx / dist * max; dy = dy / dist * max; }
+    setAnalogMove(nx, ny);
     knob.style.transform = `translate(${dx}px, ${dy}px)`;
-    applyMove(dx, dy);
+    if (Math.abs(nx) > STICK_ACTIVE_THRESHOLD) {
+      lastRollDirection = nx < 0 ? -1 : 1;
+    }
+  };
+
+  const clearStick = (): void => {
+    if (stickPointerId !== null) {
+      try {
+        if (moveZone.hasPointerCapture(stickPointerId)) moveZone.releasePointerCapture(stickPointerId);
+      } catch { /* The pointer may already have been cancelled by iOS. */ }
+    }
+    stickPointerId = null;
+    setAnalogMove(0, 0);
+    knob.style.transform = 'translate(0, 0)';
+    stick.classList.remove('is-active');
+  };
+
+  moveZone.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    if (stickPointerId !== null) return;
+    stickPointerId = e.pointerId;
+    pointerX = e.clientX;
+    pointerY = e.clientY;
+    centerX = pointerX;
+    centerY = pointerY;
+    placeStick(centerX, centerY);
+    setAnalogMove(0, 0);
+    knob.style.transform = 'translate(0, 0)';
+    stick.classList.add('is-active');
+    try { moveZone.setPointerCapture(e.pointerId); } catch { /* See clearStick. */ }
   });
 
-  const stickRelease = (e: PointerEvent) => {
-    if (e.pointerId !== stickPid) return;
+  moveZone.addEventListener('pointermove', e => {
+    if (e.pointerId !== stickPointerId) return;
     e.preventDefault();
-    stickPid = -1;
-    knob.style.transform = 'translate(0, 0)';
-    clearMove();
-  };
-  stick.addEventListener('pointerup', stickRelease);
-  stick.addEventListener('pointercancel', stickRelease);
+    pointerX = e.clientX;
+    pointerY = e.clientY;
+    applyMove(pointerX - centerX, pointerY - centerY);
+  });
 
-  // ── 右: 射撃ボタン(押しっぱなしで連射 / タイトルでは開始) ─────────────────
+  const releaseStick = (e: PointerEvent): void => {
+    if (e.pointerId !== stickPointerId) return;
+    e.preventDefault();
+    clearStick();
+  };
+  moveZone.addEventListener('pointerup', releaseStick);
+  moveZone.addEventListener('pointercancel', releaseStick);
+  moveZone.addEventListener('lostpointercapture', clearStick);
+
+  const buttonResets: Array<() => void> = [];
+  const registerButtonReset = (reset: () => void): void => { buttonResets.push(reset); };
+
   const fire = makeButton(
-    'touch-fire', 'FIRE',
+    'touch-fire',
+    'FIRE',
     () => setVirtual('Space', true),
     () => setVirtual('Space', false),
+    registerButtonReset,
   );
 
-  // ── ロール(左右) ───────────────────────────────────────────────────────────
-  const rollL = makeButton('touch-roll-l', '⟲',
-    () => dispatchEvent(new CustomEvent('game:roll', { detail: -1 })));
-  const rollR = makeButton('touch-roll-r', '⟳',
-    () => dispatchEvent(new CustomEvent('game:roll', { detail: 1 })));
+  let autoFireButton: HTMLDivElement;
+  const updateAutoFireLabel = (): void => {
+    const label = isAutoFireEnabled() ? 'AUTO ON' : 'AUTO OFF';
+    autoFireButton.textContent = label;
+    autoFireButton.setAttribute('aria-label', label);
+    root.classList.toggle('auto-fire-enabled', isAutoFireEnabled());
+  };
+  autoFireButton = makeButton('touch-auto', 'AUTO ON', () => {
+    setAutoFireEnabled(!isAutoFireEnabled());
+    updateAutoFireLabel();
+  }, undefined, registerButtonReset);
 
-  // ── 視点切替 ───────────────────────────────────────────────────────────────
-  const view = makeButton('touch-view', 'VIEW',
-    () => dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyV' })));
+  const roll = makeButton('touch-roll', 'ROLL', () => {
+    const move = getAnalogMove();
+    if (Math.abs(move.x) > STICK_ACTIVE_THRESHOLD) {
+      lastRollDirection = move.x < 0 ? -1 : 1;
+    }
+    dispatchEvent(new CustomEvent<number>('game:roll', { detail: lastRollDirection }));
+  }, undefined, registerButtonReset);
 
-  root.append(stick, fire, rollL, rollR, view);
+  // View is intentionally a small secondary control; it is not part of the combat cluster.
+  const view = makeButton('touch-view', 'V',
+    () => dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyV' })),
+    undefined,
+    registerButtonReset,
+  );
+
+  root.append(moveZone, stick, fire, autoFireButton, roll, view);
   document.body.appendChild(root);
+
+  const resetControls = (): void => {
+    clearStick();
+    buttonResets.forEach(reset => reset());
+    clearInputState();
+  };
+
+  addEventListener('blur', resetControls);
+  addEventListener('pagehide', resetControls);
+  addEventListener('orientationchange', resetControls);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) resetControls();
+  });
+  addEventListener('resize', () => {
+    if (stickPointerId === null) return;
+    placeStick(centerX, centerY);
+    applyMove(pointerX - centerX, pointerY - centerY);
+  });
+
+  updateAutoFireLabel();
 }

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { isDown } from './input';
+import { isAutoFireEnabled, isDown } from './input';
 import { Player } from './player';
 import { Boss, createBoss } from './boss';
 import {
@@ -29,13 +29,24 @@ const TITLE_MSG = () =>
 const BACK_KEY = () => (isTouchActive() ? '[ FIRE ] TITLE' : '[ SPACE ] TITLE');
 
 const MAX_SHIELD    = 100;
-const PLAYER_RADIUS = 1.5;
-const BULLET_RADIUS = 0.5;
+const PLAYER_RADIUS_PC = 1.5;
+const PLAYER_RADIUS_TOUCH = 1.35;
+const PLAYER_BULLET_RADIUS_PC = 0.5;
+const PLAYER_BULLET_RADIUS_TOUCH = 0.56;
+const ENEMY_BULLET_RADIUS = 0.5;
 const BEAM_HALF_W   = 1.8;
 const TOTAL_STAGES  = 5;
 
 // ステージごとの敵速度倍率
 const STAGE_SPEED_MULTS = [1.0, 1.2, 1.35, 1.55, 1.8];
+
+function getPlayerRadius(): number {
+  return isTouchActive() ? PLAYER_RADIUS_TOUCH : PLAYER_RADIUS_PC;
+}
+
+function getPlayerBulletRadius(): number {
+  return isTouchActive() ? PLAYER_BULLET_RADIUS_TOUCH : PLAYER_BULLET_RADIUS_PC;
+}
 
 export type GameState = 'title' | 'playing' | 'boss_warning' | 'boss' | 'stage_clear' | 'gameover' | 'clear';
 
@@ -106,7 +117,8 @@ export class Game {
 
     // ── 射撃 ──────────────────────────────────────────────────────────────
     this.fireTimer -= dt;
-    if (isDown('Space') && this.fireTimer <= 0) {
+    const autoFire = isAutoFireEnabled() && (this.state === 'playing' || this.state === 'boss');
+    if ((isDown('Space') || autoFire) && this.fireTimer <= 0) {
       const origin = this.player.group.position.clone();
       origin.z -= 2;
       firePlayerBullet(origin);
@@ -183,7 +195,7 @@ export class Game {
 
     // 自弾 × ボス本体
     for (const b of pBullets) {
-      if (sphereHit(b.mesh.position, BULLET_RADIUS, this.boss.group.position, this.boss.radius)) {
+      if (sphereHit(b.mesh.position, getPlayerBulletRadius(), this.boss.group.position, this.boss.radius)) {
         killBullet(b);
         if (this.boss.isShielded) {
           spawnExplosion(b.mesh.position.clone(), 3, 0x88ddff); // シールド弾き
@@ -198,7 +210,7 @@ export class Game {
     // 自弾 × コア(弱点: 3x ダメージ)
     for (const b of pBullets) {
       const coreWorld = this.boss.core.getWorldPosition(new THREE.Vector3());
-      if (sphereHit(b.mesh.position, BULLET_RADIUS, coreWorld, this.boss.coreRadius)) {
+      if (sphereHit(b.mesh.position, getPlayerBulletRadius(), coreWorld, this.boss.coreRadius)) {
         killBullet(b);
         if (!this.boss.isShielded) {
           this.boss.damage(3);
@@ -283,7 +295,7 @@ export class Game {
     for (const b of pBullets) {
       for (const e of enemies) {
         if (!e.alive) continue;
-        if (sphereHit(b.mesh.position, BULLET_RADIUS, e.group.position, e.radius)) {
+        if (sphereHit(b.mesh.position, getPlayerBulletRadius(), e.group.position, e.radius)) {
           killBullet(b);
           damageEnemy(e, 1);
           if (!e.alive) {
@@ -303,7 +315,7 @@ export class Game {
     if (this.hitFlash > 0 || this.player.isRolling) return;
 
     for (const b of getEnemyBullets()) {
-      if (sphereHit(b.mesh.position, BULLET_RADIUS, this.player.group.position, PLAYER_RADIUS)) {
+      if (sphereHit(b.mesh.position, ENEMY_BULLET_RADIUS, this.player.group.position, getPlayerRadius())) {
         killBullet(b);
         this.takeDamage(15);
         return;
@@ -312,7 +324,7 @@ export class Game {
 
     for (const e of getEnemies()) {
       if (!e.alive) continue;
-      if (sphereHit(e.group.position, e.radius, this.player.group.position, PLAYER_RADIUS)) {
+      if (sphereHit(e.group.position, e.radius, this.player.group.position, getPlayerRadius())) {
         damageEnemy(e, 999);
         this.takeDamage(30);
         return;
@@ -347,7 +359,7 @@ export class Game {
         const d = Math.sqrt(
           (px - col.wx) ** 2 + (py - col.wy) ** 2 + (pz - obs.group.position.z) ** 2,
         );
-        if (d < col.r + PLAYER_RADIUS) {
+        if (d < col.r + getPlayerRadius()) {
           this.takeDamage(20);
           return;
         }
