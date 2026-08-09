@@ -13,7 +13,10 @@ import {
 } from './enemies';
 import { updateEffects, spawnExplosion, clearEffects, spawnScorePopup, spawnTextPopup } from './effects';
 import { sphereHit } from './collision';
-import { setScore, setShield, setStage, showMessage, hideMessage, updateHUD, triggerShake } from './hud';
+import {
+  setScore, setShield, setStage, showMessage, hideMessage,
+  showBossHud, updateBossHud, hideBossHud, updateHUD, triggerShake,
+} from './hud';
 import { updateObstacles, getObstacles, resetObstacles, setStageTheme, setSceneBackground } from './terrain';
 import { updateItems, getItems, resetItems, ITEM_RADIUS, HEAL_AMOUNT } from './items';
 import { sfxLaser, sfxExplosion, sfxHit, sfxWarning, sfxClear, sfxShieldLow, sfxPickup } from './audio';
@@ -22,11 +25,11 @@ import { isTouchActive } from './touch';
 // タイトル画面の操作説明(キーボード / タッチで切替)
 const TITLE_MSG = () =>
   isTouchActive()
-    ? 'STAR WING\n\n[ FIRE ] START\n[ VIEW ] 視点切替'
+    ? 'STAR WING\n\nLEFT DRAG: MOVE\nROLL: EVADE\nAUTO FIRE: ON\n\n[ START ]'
     : 'STAR WING\n\n[ SPACE ] START\n[ V ] VIEW';
 
 // 「タイトルへ戻る」操作の表記
-const BACK_KEY = () => (isTouchActive() ? '[ FIRE ] TITLE' : '[ SPACE ] TITLE');
+const BACK_KEY = () => (isTouchActive() ? '[ TITLE ]' : '[ SPACE ] TITLE');
 
 const MAX_SHIELD    = 100;
 const PLAYER_RADIUS_PC = 1.5;
@@ -34,7 +37,7 @@ const PLAYER_RADIUS_TOUCH = 1.35;
 const PLAYER_BULLET_RADIUS_PC = 0.5;
 const PLAYER_BULLET_RADIUS_TOUCH = 0.56;
 const ENEMY_BULLET_RADIUS = 0.5;
-const BEAM_HALF_W   = 1.8;
+const BOSS_CHARGE_DAMAGE = 30;
 const TOTAL_STAGES  = 5;
 
 // ステージごとの敵速度倍率
@@ -63,6 +66,8 @@ export class Game {
   private stageClearTimer = 0;
   private boss: Boss | null = null;
   private prevSpace      = false;
+  private lastChargeId   = -1;
+  private pendingMessageTimers = new Set<number>();
 
   // フェーズ5: 演出
   private muzzleFlash:    THREE.Mesh;
@@ -87,6 +92,27 @@ export class Game {
     setShield(MAX_SHIELD, MAX_SHIELD);
     setScore(0);
     setStage(1);
+    hideBossHud();
+    dispatchEvent(new CustomEvent<GameState>('game:state', { detail: this.state }));
+  }
+
+  private setState(next: GameState): void {
+    if (this.state === next) return;
+    this.state = next;
+    dispatchEvent(new CustomEvent<GameState>('game:state', { detail: next }));
+  }
+
+  private scheduleMessage(callback: () => void, delay: number): void {
+    const timer = window.setTimeout(() => {
+      this.pendingMessageTimers.delete(timer);
+      callback();
+    }, delay);
+    this.pendingMessageTimers.add(timer);
+  }
+
+  private clearPendingMessageTimers(): void {
+    for (const timer of this.pendingMessageTimers) window.clearTimeout(timer);
+    this.pendingMessageTimers.clear();
   }
 
   update(dt: number): void {
@@ -169,7 +195,7 @@ export class Game {
 
     if (allWavesCleared()) {
       resetObstacles();
-      this.state        = 'boss_warning';
+      this.setState('boss_warning');
       this.warningTimer = 0;
       showMessage('!! WARNING !!');
       sfxWarning();
@@ -181,8 +207,10 @@ export class Game {
     this.warningTimer += dt;
     if (this.warningTimer >= 3) {
       hideMessage();
-      this.state = 'boss';
+      this.setState('boss');
       this.boss  = createBoss(this.scene, () => this.onBossDead(), this.currentStage);
+      this.lastChargeId = -1;
+      showBossHud(this.boss.hp, this.boss.maxHp);
     }
   }
 
@@ -190,15 +218,34 @@ export class Game {
   private updateBoss(dt: number): void {
     if (!this.boss) return;
     this.boss.update(dt, this.player.group.position);
+    if (!this.boss.alive) return;
+
+    if (this.boss.hp <= 0) hideBossHud();
+    else updateBossHud(this.boss.hp, this.boss.maxHp);
 
     const pBullets = getPlayerBullets();
+    const coreWorld = this.boss.core.getWorldPosition(new THREE.Vector3());
 
-    // 自弾 × ボス本体
+    // Core is checked first so one bullet cannot score both a weak-point and body hit.
     for (const b of pBullets) {
-      if (sphereHit(b.mesh.position, getPlayerBulletRadius(), this.boss.group.position, this.boss.radius)) {
+      if (this.boss.hp <= 0) break;
+      if (sphereHit(b.mesh.position, getPlayerBulletRadius(), coreWorld, this.boss.coreRadius)) {
         killBullet(b);
         if (this.boss.isShielded) {
           spawnExplosion(b.mesh.position.clone(), 3, 0x88ddff); // シールド弾き
+        } else {
+          this.boss.damage(3);
+          this.addScore(150);
+          spawnExplosion(coreWorld, 5, 0xffaa00);
+          sfxExplosion(false);
+        }
+        continue;
+      }
+
+      if (sphereHit(b.mesh.position, getPlayerBulletRadius(), this.boss.group.position, this.boss.radius)) {
+        killBullet(b);
+        if (this.boss.isShielded) {
+          spawnExplosion(b.mesh.position.clone(), 3, 0x88ddff);
         } else {
           this.boss.damage(1);
           this.addScore(50);
@@ -207,25 +254,26 @@ export class Game {
       }
     }
 
-    // 自弾 × コア(弱点: 3x ダメージ)
-    for (const b of pBullets) {
-      const coreWorld = this.boss.core.getWorldPosition(new THREE.Vector3());
-      if (sphereHit(b.mesh.position, getPlayerBulletRadius(), coreWorld, this.boss.coreRadius)) {
-        killBullet(b);
-        if (!this.boss.isShielded) {
-          this.boss.damage(3);
-          this.addScore(150);
-          spawnExplosion(coreWorld, 5, 0xffaa00);
-          sfxExplosion(false);
-        }
-      }
-    }
-
     this.checkEnemyHitsVsPlayer();
+
+    if (
+      this.hitFlash <= 0
+      && !this.player.isRolling
+      && this.boss.isCharging
+      && this.boss.chargeId !== this.lastChargeId
+      && sphereHit(this.boss.group.position, this.boss.radius, this.player.group.position, getPlayerRadius())
+    ) {
+      this.lastChargeId = this.boss.chargeId;
+      this.takeDamage(BOSS_CHARGE_DAMAGE);
+    }
 
     // レーザービーム判定
     if (this.hitFlash <= 0 && !this.player.isRolling && this.boss.isFiringBeam) {
-      if (Math.abs(this.player.group.position.x - this.boss.beamX) < BEAM_HALF_W) {
+      const hitX = Math.abs(this.player.group.position.x - this.boss.beamX)
+        < this.boss.beamHalfWidth + getPlayerRadius();
+      const hitY = Math.abs(this.player.group.position.y - this.boss.beamY)
+        < this.boss.beamHalfHeight + getPlayerRadius();
+      if (hitX && hitY) {
         this.takeDamage(25);
       }
     }
@@ -240,17 +288,19 @@ export class Game {
   // ── ボス撃破 ──────────────────────────────────────────────────────────────
   private onBossDead(): void {
     sfxExplosion(true);
+    hideBossHud();
+    this.clearPendingMessageTimers();
     if (this.currentStage < TOTAL_STAGES) {
-      this.state           = 'stage_clear';
+      this.setState('stage_clear');
       this.stageClearTimer = 4.5;
-      setTimeout(() => {
+      this.scheduleMessage(() => {
         showMessage(
           `STAGE ${this.currentStage} CLEAR!\n\nPREPARE FOR\nSTAGE ${this.currentStage + 1}`,
         );
       }, 400);
     } else {
-      this.state = 'clear';
-      setTimeout(() => {
+      this.setState('clear');
+      this.scheduleMessage(() => {
         sfxClear();
         showMessage(`MISSION COMPLETE!\n\nFINAL SCORE: ${this.score}\n\n${BACK_KEY()}`);
       }, 500);
@@ -259,6 +309,7 @@ export class Game {
 
   // ── 次ステージ開始 ────────────────────────────────────────────────────────
   private startNextStage(): void {
+    this.clearPendingMessageTimers();
     this.currentStage++;
     setStage(this.currentStage);
     setStageWaves(this.currentStage);
@@ -266,7 +317,7 @@ export class Game {
     setStageTheme(this.currentStage);
     setSceneBackground(this.scene, this.currentStage);
 
-    this.state        = 'playing';
+    this.setState('playing');
     this.stageTime    = 0;
     this.fireTimer    = 0;
     this.hitFlash     = 0;
@@ -274,9 +325,11 @@ export class Game {
     this.muzzleFlash.visible = false;
     this.muzzleLife   = 0;
     this.bossHitSoundCd = 0;
+    this.lastChargeId = -1;
 
     this.boss?.reset();
     this.boss = null;
+    hideBossHud();
     resetEnemies();
     resetObstacles();
     resetItems();
@@ -285,7 +338,7 @@ export class Game {
     hideMessage();
 
     showMessage(`STAGE ${this.currentStage}`);
-    setTimeout(() => hideMessage(), 2500);
+    this.scheduleMessage(() => hideMessage(), 2500);
   }
 
   // ── 共通: 自弾 × 通常敵 ──────────────────────────────────────────────────
@@ -371,15 +424,17 @@ export class Game {
   private takeDamage(dmg: number): void {
     this.shield = Math.max(0, this.shield - dmg);
     setShield(this.shield, MAX_SHIELD);
-    triggerShake(dmg / 30);
+    triggerShake((dmg / 30) * (isTouchActive() ? 0.5 : 1));
     spawnExplosion(this.player.group.position.clone(), 6, 0xff2200);
     sfxHit();
     this.hitFlash = 0.8;
 
     if (this.shield <= 0) {
+      this.clearPendingMessageTimers();
+      hideBossHud();
       spawnExplosion(this.player.group.position.clone(), 20, 0xff6600);
       sfxExplosion(true);
-      this.state = 'gameover';
+      this.setState('gameover');
       showMessage(`GAME OVER\n\nSCORE: ${this.score}\n\n${BACK_KEY()}`);
     }
   }
@@ -391,8 +446,10 @@ export class Game {
 
   // ── ゲーム開始 ────────────────────────────────────────────────────────────
   private startGame(): void {
+    this.clearPendingMessageTimers();
+    hideBossHud();
     this.currentStage   = 1;
-    this.state          = 'playing';
+    this.setState('playing');
     this.score          = 0;
     this.shield         = MAX_SHIELD;
     this.stageTime      = 0;
@@ -402,6 +459,7 @@ export class Game {
     this.muzzleFlash.visible = false;
     this.muzzleLife     = 0;
     this.bossHitSoundCd = 0;
+    this.lastChargeId   = -1;
     this.shieldLowTimer = 0;
 
     setScore(0);
@@ -424,7 +482,9 @@ export class Game {
 
   // ── タイトルへ ────────────────────────────────────────────────────────────
   private resetToTitle(): void {
-    this.state = 'title';
+    this.clearPendingMessageTimers();
+    hideBossHud();
+    this.setState('title');
     setScore(0);
     setShield(MAX_SHIELD, MAX_SHIELD);
     setStage(1);

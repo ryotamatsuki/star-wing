@@ -4,6 +4,8 @@ const scoreEl  = document.getElementById('score')!;
 const stageEl  = document.getElementById('stage')!;
 const shieldEl = document.getElementById('shield-bar')!;
 const msgEl    = document.getElementById('message')!;
+const bossHudEl = document.getElementById('boss-hud')!;
+const bossHpEl  = document.getElementById('boss-hp-bar')!;
 
 export function setScore(n: number): void {
   scoreEl.textContent = String(n);
@@ -25,6 +27,21 @@ export function showMessage(text: string): void {
 
 export function hideMessage(): void {
   msgEl.textContent = '';
+}
+
+export function showBossHud(current: number, max: number): void {
+  bossHudEl.hidden = false;
+  updateBossHud(current, max);
+}
+
+export function updateBossHud(current: number, max: number): void {
+  const pct = Math.max(0, Math.min(100, current / max * 100));
+  bossHpEl.style.width = `${pct}%`;
+}
+
+export function hideBossHud(): void {
+  bossHudEl.hidden = true;
+  bossHpEl.style.width = '0%';
 }
 
 // 被弾時の画面シェイク

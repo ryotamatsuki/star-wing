@@ -31,6 +31,8 @@ const CONFIGS: BossConfig[] = [
 const BOSS_Z      = -90;
 const BODY_RADIUS = 10;
 const CORE_RADIUS = 2.5;
+const BEAM_HALF_WIDTH = 1.5;
+const BEAM_HALF_HEIGHT = 0.5;
 
 type Pattern = 'enter' | 'patternA' | 'special_warn' | 'special_fire' | 'dying';
 
@@ -38,9 +40,15 @@ export interface Boss {
   group:        THREE.Group;
   core:         THREE.Mesh;
   hp:           number;
+  maxHp:        number;
   alive:        boolean;
   isFiringBeam: boolean;
   beamX:        number;
+  beamY:        number;
+  beamHalfWidth: number;
+  beamHalfHeight: number;
+  isCharging:   boolean;
+  chargeId:     number;
   isShielded:   boolean;
   radius:       number;
   coreRadius:   number;
@@ -83,6 +91,7 @@ export function createBoss(scene: THREE.Scene, onDead: () => void, stage = 1): B
   // charge 用
   let chargeStartZ  = BOSS_Z;
   let chargeTargetZ = BOSS_Z;
+  let chargeId      = 0;
   // storm 用
   let stormFireCd = 0;
   let stormAngle  = 0;
@@ -91,6 +100,7 @@ export function createBoss(scene: THREE.Scene, onDead: () => void, stage = 1): B
   function spdMul(): number  { return phase2() ? 1.5 : 1.0; }
   function ways(): number    { return phase2() ? cfg.fireWays + 2 : cfg.fireWays; }
   function interval(): number { return cfg.fireInterval / spdMul(); }
+  function chargeDuration(): number { return phase2() ? 0.55 : 0.85; }
 
   function shoot(origin: THREE.Vector3, target: THREE.Vector3, n: number, spread: number): void {
     for (let i = 0; i < n; i++) {
@@ -165,6 +175,7 @@ export function createBoss(scene: THREE.Scene, onDead: () => void, stage = 1): B
           } else if (cfg.special === 'charge') {
             chargeStartZ  = group.position.z;
             chargeTargetZ = playerPos.z - 5;
+            chargeId++;
             const bm = (group.children[0] as THREE.Mesh).material as THREE.MeshLambertMaterial;
             bm.color.setHex(0x886644);
           } else if (cfg.special === 'shield') {
@@ -187,7 +198,7 @@ export function createBoss(scene: THREE.Scene, onDead: () => void, stage = 1): B
 
         } else if (cfg.special === 'charge') {
           // ── チャージ突進 ──
-          const chargeDur = phase2() ? 0.55 : 0.85;
+          const chargeDur = chargeDuration();
           const returnDur = 0.7;
           const total     = chargeDur + returnDur;
           if (timer < chargeDur) {
@@ -292,12 +303,18 @@ export function createBoss(scene: THREE.Scene, onDead: () => void, stage = 1): B
   return {
     group, core,
     get hp()           { return hp; },
+    maxHp:             cfg.hp,
     get alive()        { return alive; },
     get isFiringBeam() { return pattern === 'special_fire' && cfg.special === 'beam'; },
     get beamX()        { return beamX; },
+    get beamY()        { return group.position.y - 0.5; },
+    beamHalfWidth:     BEAM_HALF_WIDTH,
+    beamHalfHeight:    BEAM_HALF_HEIGHT,
+    get isCharging()   { return pattern === 'special_fire' && cfg.special === 'charge' && timer < chargeDuration(); },
+    get chargeId()     { return chargeId; },
     get isShielded()   { return isShielded; },
-    radius:     BODY_RADIUS,
-    coreRadius: CORE_RADIUS,
+    radius:     BODY_RADIUS * cfg.scale,
+    coreRadius: CORE_RADIUS * cfg.scale,
     update, damage, reset,
   };
 }

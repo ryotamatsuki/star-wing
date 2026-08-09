@@ -15,6 +15,9 @@ const LIMIT_Y_MIN   = 0.5;
 const LIMIT_Y_MAX   = 12;
 const BARREL_WINDOW   = 0.35; // ダブルタップ判定時間(秒)
 const BARREL_DURATION = 0.5;
+const BARREL_COOLDOWN  = 0.85;
+
+type RollState = 'ready' | 'rolling' | 'cooldown';
 
 export interface Player {
   group: THREE.Group;
@@ -46,6 +49,7 @@ export function createPlayer(scene: THREE.Scene): Player {
 
   // バレルロール
   let rollTimer   = 0;
+  let rollCooldownTimer = 0;
   let isRolling   = false;
   let rollDir     = -1;   // -1: 左回り, +1: 右回り
   let totalTime   = 0;
@@ -56,13 +60,20 @@ export function createPlayer(scene: THREE.Scene): Player {
   let lastLeftReleased  = -99;
   let lastRightReleased = -99;
 
+  function emitRollState(state: RollState, remaining = 0): void {
+    dispatchEvent(new CustomEvent('game:roll-state', {
+      detail: { state, remaining, duration: BARREL_COOLDOWN },
+    }));
+  }
+
   // バレルロール発動(ダブルタップ・タッチボタン共通)
   function roll(dir: number): void {
-    if (isRolling) return;
+    if (isRolling || rollCooldownTimer > 0) return;
     isRolling = true;
     rollTimer = BARREL_DURATION;
     rollDir   = dir;
     sfxBarrel();
+    emitRollState('rolling', BARREL_DURATION);
   }
 
   // タッチUIのロールボタンから発火
@@ -70,6 +81,12 @@ export function createPlayer(scene: THREE.Scene): Player {
 
   function update(dt: number, camera: THREE.Camera): void {
     totalTime += dt;
+
+    if (!isRolling && rollCooldownTimer > 0) {
+      rollCooldownTimer = Math.max(0, rollCooldownTimer - dt);
+      if (rollCooldownTimer === 0) emitRollState('ready');
+      else emitRollState('cooldown', rollCooldownTimer);
+    }
 
     // 三人称基準姿勢を初回フレームで取得(FP の lookAt で姿勢が変わる前に)
     if (!tpQuat) tpQuat = (camera as THREE.PerspectiveCamera).quaternion.clone();
@@ -114,7 +131,9 @@ export function createPlayer(scene: THREE.Scene): Player {
       if (rollTimer <= 0) {
         isRolling = false;
         rollTimer = 0;
+        rollCooldownTimer = BARREL_COOLDOWN;
         group.rotation.z = 0;
+        emitRollState('cooldown', rollCooldownTimer);
       }
     } else {
       const targetRoll  = -vel.x / SPEED_X * MAX_ROLL;
@@ -147,9 +166,11 @@ export function createPlayer(scene: THREE.Scene): Player {
     vel.set(0, 0);
     isRolling = false;
     rollTimer = 0;
+    rollCooldownTimer = 0;
     totalTime = 0;
     prevLeft = false;
     prevRight = false;
+    emitRollState('ready');
   }
 
   return { group, get isRolling() { return isRolling; }, update, reset };

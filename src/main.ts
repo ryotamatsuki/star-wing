@@ -5,7 +5,7 @@ import { initBullets } from './bullets';
 import { initEnemies } from './enemies';
 import { initEffects } from './effects';
 import { initItems } from './items';
-import { initTouchControls, isTouchDevice } from './touch';
+import { initTouchControls, isTouchDevice, isTouchLayoutBlocked } from './touch';
 import { Game } from './game';
 
 // ─── シーン・カメラ・レンダラー ───────────────────────────────────────────────
@@ -57,9 +57,12 @@ function loop(time: number): void {
   const dt = Math.min((time - lastTime) / 1000, 0.1);
   lastTime = time;
 
-  updateTerrain(dt);
-  player.update(dt, camera);
-  game.update(dt);
+  // A portrait touch layout is an instruction screen, so pause simulation behind it.
+  if (!isTouchLayoutBlocked()) {
+    updateTerrain(dt);
+    player.update(dt, camera);
+    game.update(dt);
+  }
 
   renderer.render(scene, camera);
   requestAnimationFrame(loop);

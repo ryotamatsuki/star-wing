@@ -9,8 +9,20 @@ import {
 
 const STICK_DIAMETER = 128;
 const STICK_RADIUS = STICK_DIAMETER / 2;
-const STICK_DEADZONE = 0.04;
+const STICK_DEADZONE = 0.14;
 const STICK_ACTIVE_THRESHOLD = 0.1;
+const STICK_EDGE_PADDING = 10;
+
+interface Point {
+  x: number;
+  y: number;
+}
+
+interface RollStateDetail {
+  state: 'ready' | 'rolling' | 'cooldown';
+  remaining: number;
+  duration: number;
+}
 
 let touchActive = false;
 export const isTouchActive = (): boolean => touchActive;
@@ -18,6 +30,10 @@ export const isTouchActive = (): boolean => touchActive;
 export function isTouchDevice(): boolean {
   if (location.search.includes('touch')) return true;
   return matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0;
+}
+
+export function isTouchLayoutBlocked(): boolean {
+  return touchActive && matchMedia('(orientation: portrait)').matches;
 }
 
 function makeButton(
@@ -74,6 +90,9 @@ export function initTouchControls(): void {
   const root = document.createElement('div');
   root.id = 'touch-controls';
 
+  const safeAreaProbe = document.createElement('div');
+  safeAreaProbe.className = 'touch-safe-area-probe';
+
   const moveZone = document.createElement('div');
   moveZone.className = 'touch-move-zone';
   moveZone.setAttribute('aria-label', 'Move');
@@ -89,17 +108,44 @@ export function initTouchControls(): void {
   let stickPointerId: number | null = null;
   let centerX = 0;
   let centerY = 0;
-  let pointerX = 0;
-  let pointerY = 0;
+  let rawPointerX = 0;
+  let rawPointerY = 0;
+  let pointerOffsetX = 0;
+  let pointerOffsetY = 0;
   let lastRollDirection = 1;
 
-  const placeStick = (x: number, y: number): void => {
+  const safeInset = (side: 'left' | 'right' | 'top' | 'bottom'): number => {
+    const styles = getComputedStyle(safeAreaProbe);
+    const value = side === 'left' ? styles.paddingLeft
+      : side === 'right' ? styles.paddingRight
+        : side === 'top' ? styles.paddingTop
+          : styles.paddingBottom;
+    const inset = parseFloat(value);
+    return Number.isFinite(inset) ? Math.max(0, inset) : 0;
+  };
+
+  const clampPoint = (x: number, y: number): Point => {
     const width = document.documentElement.clientWidth || innerWidth;
     const height = document.documentElement.clientHeight || innerHeight;
-    const left = Math.max(0, Math.min(width - STICK_DIAMETER, x - STICK_RADIUS));
-    const top = Math.max(0, Math.min(height - STICK_DIAMETER, y - STICK_RADIUS));
-    stick.style.left = `${left}px`;
-    stick.style.top = `${top}px`;
+    const zoneRight = moveZone.getBoundingClientRect().right;
+    const minX = safeInset('left') + STICK_RADIUS + STICK_EDGE_PADDING;
+    const maxX = Math.min(
+      width - safeInset('right') - STICK_RADIUS - STICK_EDGE_PADDING,
+      zoneRight - STICK_RADIUS - STICK_EDGE_PADDING,
+    );
+    const minY = safeInset('top') + STICK_RADIUS + STICK_EDGE_PADDING;
+    const maxY = height - safeInset('bottom') - STICK_RADIUS - STICK_EDGE_PADDING;
+    return {
+      x: Math.max(minX, Math.min(Math.max(minX, maxX), x)),
+      y: Math.max(minY, Math.min(Math.max(minY, maxY), y)),
+    };
+  };
+
+  const placeStick = (point: Point): void => {
+    centerX = point.x;
+    centerY = point.y;
+    stick.style.left = `${centerX - STICK_RADIUS}px`;
+    stick.style.top = `${centerY - STICK_RADIUS}px`;
   };
 
   const applyMove = (dx: number, dy: number): void => {
@@ -111,13 +157,19 @@ export function initTouchControls(): void {
 
     const nx = dx / STICK_RADIUS;
     const ny = dy / STICK_RADIUS;
-    if (Math.hypot(nx, ny) < STICK_DEADZONE) {
+    const length = Math.min(1, Math.hypot(nx, ny));
+    if (length <= STICK_DEADZONE) {
       setAnalogMove(0, 0);
       knob.style.transform = 'translate(0, 0)';
       return;
     }
 
-    setAnalogMove(nx, ny);
+    // Convert screen coordinates to game coordinates: screen-down is game-down.
+    const remappedLength = (length - STICK_DEADZONE) / (1 - STICK_DEADZONE);
+    const scale = remappedLength / length;
+    const inputX = nx * scale;
+    const inputY = -ny * scale;
+    setAnalogMove(inputX, inputY);
     knob.style.transform = `translate(${dx}px, ${dy}px)`;
     if (Math.abs(nx) > STICK_ACTIVE_THRESHOLD) {
       lastRollDirection = nx < 0 ? -1 : 1;
@@ -140,11 +192,12 @@ export function initTouchControls(): void {
     e.preventDefault();
     if (stickPointerId !== null) return;
     stickPointerId = e.pointerId;
-    pointerX = e.clientX;
-    pointerY = e.clientY;
-    centerX = pointerX;
-    centerY = pointerY;
-    placeStick(centerX, centerY);
+    const center = clampPoint(e.clientX, e.clientY);
+    rawPointerX = e.clientX;
+    rawPointerY = e.clientY;
+    pointerOffsetX = center.x - rawPointerX;
+    pointerOffsetY = center.y - rawPointerY;
+    placeStick(center);
     setAnalogMove(0, 0);
     knob.style.transform = 'translate(0, 0)';
     stick.classList.add('is-active');
@@ -154,9 +207,12 @@ export function initTouchControls(): void {
   moveZone.addEventListener('pointermove', e => {
     if (e.pointerId !== stickPointerId) return;
     e.preventDefault();
-    pointerX = e.clientX;
-    pointerY = e.clientY;
-    applyMove(pointerX - centerX, pointerY - centerY);
+    rawPointerX = e.clientX;
+    rawPointerY = e.clientY;
+    applyMove(
+      rawPointerX + pointerOffsetX - centerX,
+      rawPointerY + pointerOffsetY - centerY,
+    );
   });
 
   const releaseStick = (e: PointerEvent): void => {
@@ -173,11 +229,24 @@ export function initTouchControls(): void {
 
   const fire = makeButton(
     'touch-fire',
-    'FIRE',
+    'START',
     () => setVirtual('Space', true),
     () => setVirtual('Space', false),
     registerButtonReset,
   );
+
+  let currentGameState = 'title';
+  const updateTouchState = (state: string): void => {
+    currentGameState = state;
+    const isReturnState = state === 'gameover' || state === 'clear';
+    const isCombatState = state === 'playing' || state === 'boss_warning' || state === 'boss';
+    const fireLabel = state === 'title' ? 'START' : isReturnState ? 'TITLE' : 'FIRE';
+    fire.textContent = fireLabel;
+    fire.setAttribute('aria-label', fireLabel);
+    root.classList.toggle('fire-start', state === 'title');
+    root.classList.toggle('fire-return', isReturnState);
+    root.classList.toggle('fire-passive', isCombatState && isAutoFireEnabled());
+  };
 
   let autoFireButton: HTMLDivElement;
   const updateAutoFireLabel = (): void => {
@@ -185,13 +254,16 @@ export function initTouchControls(): void {
     autoFireButton.textContent = label;
     autoFireButton.setAttribute('aria-label', label);
     root.classList.toggle('auto-fire-enabled', isAutoFireEnabled());
+    updateTouchState(currentGameState);
   };
   autoFireButton = makeButton('touch-auto', 'AUTO ON', () => {
     setAutoFireEnabled(!isAutoFireEnabled());
     updateAutoFireLabel();
   }, undefined, registerButtonReset);
 
+  let rollState: RollStateDetail['state'] = 'ready';
   const roll = makeButton('touch-roll', 'ROLL', () => {
+    if (rollState !== 'ready') return;
     const move = getAnalogMove();
     if (Math.abs(move.x) > STICK_ACTIVE_THRESHOLD) {
       lastRollDirection = move.x < 0 ? -1 : 1;
@@ -199,14 +271,27 @@ export function initTouchControls(): void {
     dispatchEvent(new CustomEvent<number>('game:roll', { detail: lastRollDirection }));
   }, undefined, registerButtonReset);
 
+  const updateRollState = (detail: RollStateDetail): void => {
+    rollState = detail.state;
+    const isCooldown = detail.state === 'cooldown';
+    const progress = detail.duration > 0
+      ? Math.max(0, Math.min(1, 1 - detail.remaining / detail.duration))
+      : 1;
+    roll.style.setProperty('--roll-progress', `${progress * 100}%`);
+    roll.classList.toggle('roll-rolling', detail.state === 'rolling');
+    roll.classList.toggle('roll-cooldown', isCooldown);
+    roll.textContent = isCooldown ? 'WAIT' : 'ROLL';
+    roll.setAttribute('aria-label', isCooldown ? 'ROLL cooldown' : 'ROLL');
+  };
+
   // View is intentionally a small secondary control; it is not part of the combat cluster.
   const view = makeButton('touch-view', 'V',
-    () => dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyV' })),
+    () => { dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyV' })); },
     undefined,
     registerButtonReset,
   );
 
-  root.append(moveZone, stick, fire, autoFireButton, roll, view);
+  root.append(safeAreaProbe, moveZone, stick, fire, autoFireButton, roll, view);
   document.body.appendChild(root);
 
   const resetControls = (): void => {
@@ -215,6 +300,12 @@ export function initTouchControls(): void {
     clearInputState();
   };
 
+  addEventListener('game:state', e => {
+    updateTouchState((e as CustomEvent<string>).detail);
+  });
+  addEventListener('game:roll-state', e => {
+    updateRollState((e as CustomEvent<RollStateDetail>).detail);
+  });
   addEventListener('blur', resetControls);
   addEventListener('pagehide', resetControls);
   addEventListener('orientationchange', resetControls);
@@ -223,9 +314,14 @@ export function initTouchControls(): void {
   });
   addEventListener('resize', () => {
     if (stickPointerId === null) return;
-    placeStick(centerX, centerY);
-    applyMove(pointerX - centerX, pointerY - centerY);
+    const center = clampPoint(centerX, centerY);
+    placeStick(center);
+    pointerOffsetX = centerX - rawPointerX;
+    pointerOffsetY = centerY - rawPointerY;
+    applyMove(0, 0);
   });
 
   updateAutoFireLabel();
+  updateTouchState('title');
+  updateRollState({ state: 'ready', remaining: 0, duration: 0 });
 }

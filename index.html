@@ -41,6 +41,28 @@
       font-size: 20px;
       text-shadow: 0 0 6px #ff8;
     }
+    #boss-hud {
+      position: absolute;
+      top: max(50px, calc(env(safe-area-inset-top) + 38px));
+      left: 50%;
+      transform: translateX(-50%);
+      width: min(300px, 44vw);
+      text-align: center;
+      text-shadow: 0 0 6px #f80;
+    }
+    #boss-hud[hidden] { display: none; }
+    #boss-label { font-size: 13px; letter-spacing: 1px; }
+    #boss-hp-bg {
+      width: 100%; height: 9px;
+      margin-top: 4px;
+      background: rgba(40, 20, 20, 0.9);
+      border: 1px solid rgba(255, 180, 120, 0.8);
+    }
+    #boss-hp-bar {
+      width: 100%; height: 100%;
+      background: #f60;
+      transition: width 0.12s linear;
+    }
     #shield-container {
       position: absolute;
       bottom: max(14px, env(safe-area-inset-bottom));
@@ -76,6 +98,23 @@
       text-shadow: 0 0 12px #fff;
       white-space: pre-line;
     }
+    #orientation-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      align-items: center;
+      justify-content: center;
+      padding: max(24px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right))
+        max(24px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
+      background: rgba(0, 0, 0, 0.92);
+      color: #fff;
+      text-align: center;
+      font: bold clamp(20px, 6vw, 32px) 'Courier New', monospace;
+      text-shadow: 0 0 10px #0ff;
+      white-space: pre-line;
+      pointer-events: auto;
+      z-index: 30;
+    }
 
     #touch-controls { display: none; }
     body.touch-mode #touch-controls {
@@ -86,6 +125,14 @@
       pointer-events: none;
       z-index: 10;
       font-family: 'Courier New', monospace;
+    }
+    .touch-safe-area-probe {
+      position: absolute;
+      inset: 0;
+      visibility: hidden;
+      pointer-events: none;
+      padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
+        env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
     }
     .touch-move-zone {
       position: absolute;
@@ -161,6 +208,28 @@
       width: 78px; height: 78px;
       font-size: 15px; font-weight: bold;
       text-shadow: 0 0 8px #ff8;
+      --roll-progress: 100%;
+    }
+    #touch-controls.fire-start .touch-fire,
+    #touch-controls.fire-return .touch-fire {
+      width: 90px; height: 90px;
+      font-size: 18px;
+      opacity: 1;
+    }
+    #touch-controls.fire-passive .touch-fire {
+      width: 58px; height: 58px;
+      font-size: 10px;
+      opacity: 0.4;
+    }
+    .touch-roll.roll-rolling {
+      background: rgba(120, 220, 255, 0.5);
+    }
+    .touch-roll.roll-cooldown {
+      opacity: 0.42;
+      background: conic-gradient(
+        rgba(120, 220, 255, 0.5) var(--roll-progress),
+        rgba(255, 255, 255, 0.08) 0
+      );
     }
     .touch-view {
       top: calc(42px + env(safe-area-inset-top));
@@ -182,6 +251,11 @@
       .touch-roll { width: 68px; height: 68px; right: calc(102px + env(safe-area-inset-right)); }
       .touch-auto { bottom: calc(102px + env(safe-area-inset-bottom)); }
     }
+
+    @media (orientation: portrait) {
+      body.touch-mode #touch-controls { visibility: hidden; }
+      body.touch-mode #orientation-overlay { display: flex; }
+    }
   </style>
 </head>
 <body>
@@ -189,12 +263,17 @@
   <div id="hud">
     <div id="score-display">SCORE: <span id="score">0</span></div>
     <div id="stage-display">STAGE <span id="stage">1</span></div>
+    <div id="boss-hud" hidden>
+      <div id="boss-label">BOSS</div>
+      <div id="boss-hp-bg"><div id="boss-hp-bar"></div></div>
+    </div>
     <div id="shield-container">
       <span id="shield-label">SHIELD</span>
       <div id="shield-bar-bg"><div id="shield-bar"></div></div>
     </div>
     <div id="message"></div>
   </div>
+  <div id="orientation-overlay">端末を横向きにしてください</div>
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>
