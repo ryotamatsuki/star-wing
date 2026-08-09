@@ -324,6 +324,7 @@ export class Game {
     setSceneBackground(this.scene, this.currentStage);
 
     this.setState('playing');
+    this.shield         = MAX_SHIELD;
     this.stageTime    = 0;
     this.fireTimer    = 0;
     this.hitFlash     = 0;
@@ -332,6 +333,8 @@ export class Game {
     this.muzzleLife   = 0;
     this.bossHitSoundCd = 0;
     this.lastChargeId = -1;
+    this.shieldLowTimer = 0;
+    setShield(MAX_SHIELD, MAX_SHIELD);
 
     this.boss?.reset();
     this.boss = null;
