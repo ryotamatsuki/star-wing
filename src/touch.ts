@@ -240,7 +240,10 @@ export function initTouchControls(): void {
     currentGameState = state;
     const isReturnState = state === 'gameover' || state === 'clear';
     const isCombatState = state === 'playing' || state === 'boss_warning' || state === 'boss';
-    const fireLabel = state === 'title' ? 'START' : isReturnState ? 'TITLE' : 'FIRE';
+    const fireLabel = state === 'title' ? 'START'
+      : state === 'gameover' ? 'RETRY'
+        : state === 'clear' ? 'TITLE'
+          : 'FIRE';
     fire.textContent = fireLabel;
     fire.setAttribute('aria-label', fireLabel);
     root.classList.toggle('fire-start', state === 'title');

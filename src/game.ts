@@ -30,6 +30,7 @@ const TITLE_MSG = () =>
 
 // 「タイトルへ戻る」操作の表記
 const BACK_KEY = () => (isTouchActive() ? '[ TITLE ]' : '[ SPACE ] TITLE');
+const RETRY_KEY = () => (isTouchActive() ? '[ RETRY ]' : '[ SPACE ] RETRY');
 
 const MAX_SHIELD    = 100;
 const PLAYER_RADIUS_PC = 1.5;
@@ -133,7 +134,12 @@ export class Game {
       return;
     }
 
-    if (this.state === 'gameover' || this.state === 'clear') {
+    if (this.state === 'gameover') {
+      if (spaceFresh) this.restartCurrentStage();
+      return;
+    }
+
+    if (this.state === 'clear') {
       if (spaceFresh) this.resetToTitle();
       return;
     }
@@ -435,7 +441,7 @@ export class Game {
       spawnExplosion(this.player.group.position.clone(), 20, 0xff6600);
       sfxExplosion(true);
       this.setState('gameover');
-      showMessage(`GAME OVER\n\nSCORE: ${this.score}\n\n${BACK_KEY()}`);
+      showMessage(`GAME OVER\n\nSTAGE ${this.currentStage}\nSCORE: ${this.score}\n\n${RETRY_KEY()}`);
     }
   }
 
@@ -478,6 +484,43 @@ export class Game {
     resetItems();
     clearBullets();
     clearEffects();
+  }
+
+  private restartCurrentStage(): void {
+    this.clearPendingMessageTimers();
+    hideBossHud();
+    this.setState('playing');
+    this.shield         = MAX_SHIELD;
+    this.stageTime      = 0;
+    this.fireTimer      = 0;
+    this.hitFlash       = 0;
+    this.warningTimer   = 0;
+    this.muzzleFlash.visible = false;
+    this.muzzleLife     = 0;
+    this.bossHitSoundCd = 0;
+    this.lastChargeId   = -1;
+
+    // Keep the score and checkpoint stage, but rebuild that stage from its opening state.
+    setScore(this.score);
+    setShield(MAX_SHIELD, MAX_SHIELD);
+    setStage(this.currentStage);
+    setStageWaves(this.currentStage);
+    setEnemySpeedMult(STAGE_SPEED_MULTS[this.currentStage - 1]);
+    setStageTheme(this.currentStage);
+    setSceneBackground(this.scene, this.currentStage);
+    hideMessage();
+
+    this.player.reset();
+    this.boss?.reset();
+    this.boss = null;
+    resetEnemies();
+    resetObstacles();
+    resetItems();
+    clearBullets();
+    clearEffects();
+
+    showMessage(`STAGE ${this.currentStage}`);
+    this.scheduleMessage(() => hideMessage(), 2500);
   }
 
   // ── タイトルへ ────────────────────────────────────────────────────────────
