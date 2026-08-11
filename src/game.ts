@@ -58,6 +58,7 @@ export class Game {
   state: GameState = 'title';
 
   private score          = 0;
+  private stageStartScore = 0;
   private shield         = MAX_SHIELD;
   private stageTime      = 0;
   private fireTimer      = 0;
@@ -317,6 +318,7 @@ export class Game {
   private startNextStage(): void {
     this.clearPendingMessageTimers();
     this.currentStage++;
+    this.stageStartScore = this.score;
     setStage(this.currentStage);
     setStageWaves(this.currentStage);
     setEnemySpeedMult(STAGE_SPEED_MULTS[this.currentStage - 1]);
@@ -460,6 +462,7 @@ export class Game {
     this.currentStage   = 1;
     this.setState('playing');
     this.score          = 0;
+    this.stageStartScore = 0;
     this.shield         = MAX_SHIELD;
     this.stageTime      = 0;
     this.fireTimer      = 0;
@@ -502,8 +505,10 @@ export class Game {
     this.muzzleLife     = 0;
     this.bossHitSoundCd = 0;
     this.lastChargeId   = -1;
+    this.shieldLowTimer = 0;
 
-    // Keep the score and checkpoint stage, but rebuild that stage from its opening state.
+    // Restore the stage-opening checkpoint, then rebuild that stage from its opening state.
+    this.score = this.stageStartScore;
     setScore(this.score);
     setShield(MAX_SHIELD, MAX_SHIELD);
     setStage(this.currentStage);
