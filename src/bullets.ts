@@ -13,6 +13,7 @@ interface Bullet {
   isPlayer: boolean;
   alive: boolean;
   damage: number;
+  kind: 'normal' | 'charge';
   homing: boolean;
   homingStrength: number;
   target?: THREE.Vector3;
@@ -37,19 +38,43 @@ export interface HomingMissileOptions {
   damage?: number;
   speed?: number;
   homingStrength?: number;
+  homingTarget?: THREE.Vector3;
+}
+
+export interface PlayerBulletOptions {
+  damage?: number;
+  kind?: 'normal' | 'charge';
+  color?: number;
+  scale?: number;
 }
 
 export function initBullets(s: THREE.Scene): void {
   scene = s;
 }
 
-export function firePlayerBullet(origin: THREE.Vector3): void {
-  const mesh = new THREE.Mesh(playerGeo, playerMat);
+export function firePlayerBullet(origin: THREE.Vector3, options: PlayerBulletOptions = {}): void {
+  const material = options.color === undefined || options.color === LASER_COLOR_PLAYER
+    ? playerMat
+    : playerMat.clone();
+  if (options.color !== undefined) (material as THREE.MeshBasicMaterial).color.setHex(options.color);
+  const mesh = new THREE.Mesh(playerGeo, material);
+  mesh.scale.setScalar(options.scale ?? 1);
   mesh.position.copy(origin);
   scene.add(mesh);
   bullets.push({
     mesh, vz: -PLAYER_BULLET_SPEED, vx: 0, vy: 0, isPlayer: true, alive: true,
-    damage: 1, homing: false, homingStrength: 0, evaded: false,
+    damage: options.damage ?? 1,
+    kind: options.kind ?? 'normal',
+    homing: false, homingStrength: 0, evaded: false,
+  });
+}
+
+export function fireChargeBullet(origin: THREE.Vector3, fullCharge: boolean, damage?: number): void {
+  firePlayerBullet(origin, {
+    damage: damage ?? (fullCharge ? 10 : 4),
+    kind: 'charge',
+    color: fullCharge ? 0xffe477 : 0xffb347,
+    scale: fullCharge ? 2.1 : 1.5,
   });
 }
 
@@ -64,6 +89,7 @@ export function fireEnemyBullet(origin: THREE.Vector3, target: THREE.Vector3, op
   bullets.push({
     mesh, vz: dir.z * speed, vx: dir.x * speed, vy: dir.y * speed,
     isPlayer: false, alive: true, damage: options.damage ?? 15,
+    kind: 'normal',
     homing: false, homingStrength: 0, evaded: false,
   });
 }
@@ -96,7 +122,8 @@ export function fireHomingMissile(origin: THREE.Vector3, target: THREE.Vector3, 
     damage: options.damage ?? 22,
     homing: true,
     homingStrength: options.homingStrength ?? 0.9,
-    target,
+    target: options.homingTarget ?? target,
+    kind: 'normal',
     evaded: false,
   });
 }

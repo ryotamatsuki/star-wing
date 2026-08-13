@@ -6,6 +6,7 @@ import { sfxCharge, sfxLock, sfxMine, sfxTelegraph } from './audio';
 
 export interface AttackContext {
   scene: THREE.Scene;
+  alertSourceId: string;
   group: THREE.Group;
   age: number;
   dt: number;
@@ -23,6 +24,7 @@ interface AttackState {
   visual?: THREE.Object3D;
   groupVisual?: boolean;
   patternIndex: number;
+  locked: boolean;
 }
 
 export interface AttackController {
@@ -68,7 +70,12 @@ function makeState(spec: AttackSpec): AttackState {
     phase: 'idle',
     timer: 0,
     patternIndex: 0,
+    locked: false,
   };
+}
+
+function alertId(ctx: AttackContext, spec: AttackSpec): string {
+  return `${ctx.alertSourceId}:${spec.id ?? spec.pattern}`;
 }
 
 function fireSpread(ctx: AttackContext, spec: AttackSpec): void {
@@ -86,18 +93,27 @@ function fireSpread(ctx: AttackContext, spec: AttackSpec): void {
 
 function updateTelegraphLaser(ctx: AttackContext, spec: AttackSpec, state: AttackState): void {
   const duration = spec.telegraphDuration ?? 1.2;
+  const lockAt = duration * 0.62;
   if (state.phase === 'idle') {
     state.phase = 'telegraph';
     state.timer = 0;
+    state.locked = false;
     state.target = ctx.playerPos.clone();
     state.visual = makeLine(0xff1b2d, 0.5);
     ctx.scene.add(state.visual);
-    showCombatAlert('SNIPER LOCK', '#ff5265', 4);
+    showCombatAlert(alertId(ctx, spec), 'SNIPER LOCK', '#ff5265', 4);
     sfxTelegraph();
   }
 
   state.timer += ctx.dt;
-  const lockPoint = state.timer < duration * 0.62 ? ctx.playerPos : state.target!;
+  if (!state.locked && state.timer >= lockAt) {
+    // Capture the player's position at the actual lock boundary. The warning
+    // must never jump back to the position from telegraph start.
+    state.target = ctx.playerPos.clone();
+    state.locked = true;
+    sfxLock();
+  }
+  const lockPoint = state.locked ? state.target! : ctx.playerPos;
   aimLine(state.visual as THREE.Mesh, ctx.group.position, lockPoint);
   const mat = (state.visual as THREE.Mesh).material as THREE.MeshBasicMaterial;
   mat.opacity = 0.25 + Math.abs(Math.sin(ctx.age * 14)) * 0.65;
@@ -113,41 +129,51 @@ function updateTelegraphLaser(ctx: AttackContext, spec: AttackSpec, state: Attac
     state.phase = 'idle';
     state.timer = 0;
     state.cooldown = spec.interval;
-    hideCombatAlert('SNIPER LOCK');
+    state.locked = false;
+    hideCombatAlert(alertId(ctx, spec));
   }
 }
 
 function updateHomingMissile(ctx: AttackContext, spec: AttackSpec, state: AttackState): void {
   const duration = spec.telegraphDuration ?? 0.9;
+  const lockAt = duration * 0.65;
   if (state.phase === 'idle') {
     state.phase = 'telegraph';
     state.timer = 0;
+    state.locked = false;
     state.target = ctx.playerPos.clone();
     state.visual = makeReticle();
     ctx.scene.add(state.visual);
-    showCombatAlert('MISSILE LOCK', '#ff5964', 5);
-    sfxLock();
+    showCombatAlert(alertId(ctx, spec), 'MISSILE LOCK', '#ff5964', 5);
+    sfxTelegraph();
   }
 
   state.timer += ctx.dt;
-  const target = state.timer < duration * 0.65 ? ctx.playerPos : state.target!;
+  if (!state.locked && state.timer >= lockAt) {
+    state.target = ctx.playerPos.clone();
+    state.locked = true;
+    sfxLock();
+  }
+  const target = state.locked ? state.target! : ctx.playerPos;
   state.visual!.position.copy(target);
   state.visual!.scale.setScalar(1 + Math.sin(ctx.age * 12) * 0.18);
 
   if (state.timer >= duration) {
-    // Keep the live player position as the missile target after the lock. The
-    // warning still locks the launch point, while the projectile visibly homes.
-    fireHomingMissile(ctx.group.position.clone(), ctx.playerPos, {
+    // Launch toward the locked point, then let the projectile home on the live
+    // player position. This keeps the reticle and launch direction consistent.
+    fireHomingMissile(ctx.group.position.clone(), state.target!, {
       damage: spec.damage ?? 22,
       speed: spec.speed ?? 38,
       homingStrength: spec.homingStrength ?? 0.9,
+      homingTarget: ctx.playerPos,
     });
     ctx.scene.remove(state.visual!);
     state.visual = undefined;
     state.phase = 'idle';
     state.timer = 0;
     state.cooldown = spec.interval;
-    hideCombatAlert('MISSILE LOCK');
+    state.locked = false;
+    hideCombatAlert(alertId(ctx, spec));
   }
 }
 
@@ -156,7 +182,7 @@ function updateMineDrop(ctx: AttackContext, spec: AttackSpec, state: AttackState
   if (state.phase === 'idle') {
     state.phase = 'telegraph';
     state.timer = 0;
-    showCombatAlert('MINE ROUTE', '#ffb347', 2);
+    showCombatAlert(alertId(ctx, spec), 'MINE ROUTE', '#ffb347', 2);
     sfxMine();
   }
   state.timer += ctx.dt;
@@ -165,7 +191,7 @@ function updateMineDrop(ctx: AttackContext, spec: AttackSpec, state: AttackState
     state.phase = 'idle';
     state.timer = 0;
     state.cooldown = spec.interval;
-    hideCombatAlert('MINE ROUTE');
+    hideCombatAlert(alertId(ctx, spec));
   }
 }
 
@@ -179,7 +205,7 @@ function updateChargeAttack(ctx: AttackContext, spec: AttackSpec, state: AttackS
     state.visual = makeChargeWarning();
     state.groupVisual = true;
     ctx.group.add(state.visual);
-    showCombatAlert('INCOMING CHARGE', '#ff704d', 4);
+    showCombatAlert(alertId(ctx, spec), 'INCOMING CHARGE', '#ff704d', 4);
     sfxTelegraph();
   }
 
@@ -204,7 +230,7 @@ function updateChargeAttack(ctx: AttackContext, spec: AttackSpec, state: AttackS
       state.phase = 'idle';
       state.timer = 0;
       state.cooldown = spec.interval;
-      hideCombatAlert('INCOMING CHARGE');
+      hideCombatAlert(alertId(ctx, spec));
     }
   }
 }
@@ -215,7 +241,7 @@ function updateWeakPointWindow(ctx: AttackContext, spec: AttackSpec, state: Atta
   if (state.phase === 'idle') {
     state.phase = 'telegraph';
     state.timer = 0;
-    showCombatAlert('CORE PREPARING', '#ffe477', 3);
+    showCombatAlert(alertId(ctx, spec), 'CORE PREPARING', '#ffe477', 3);
     sfxTelegraph();
   }
   state.timer += ctx.dt;
@@ -224,7 +250,7 @@ function updateWeakPointWindow(ctx: AttackContext, spec: AttackSpec, state: Atta
     if (state.timer >= telegraph) {
       state.phase = 'active';
       state.timer = 0;
-      showCombatAlert('CORE EXPOSED', '#ffe477', 4);
+      showCombatAlert(alertId(ctx, spec), 'CORE EXPOSED', '#ffe477', 4);
     }
   } else {
     ctx.flags.vulnerable = true;
@@ -233,7 +259,7 @@ function updateWeakPointWindow(ctx: AttackContext, spec: AttackSpec, state: Atta
       state.phase = 'idle';
       state.timer = 0;
       state.cooldown = spec.interval;
-      hideCombatAlert('CORE EXPOSED');
+      hideCombatAlert(alertId(ctx, spec));
     }
   }
 }
@@ -279,7 +305,11 @@ function updateSimpleAttack(ctx: AttackContext, spec: AttackSpec, state: AttackS
   }
 }
 
-export function createAttackController(scene: THREE.Scene, specs: AttackSpec[]): AttackController {
+export function createAttackController(
+  scene: THREE.Scene,
+  specs: AttackSpec[],
+  alertSourceId: string,
+): AttackController {
   const states = specs.map(makeState);
 
   return {
@@ -311,6 +341,7 @@ export function createAttackController(scene: THREE.Scene, specs: AttackSpec[]):
         else scene.remove(state.visual);
         state.visual = undefined;
       }
+      for (const spec of specs) hideCombatAlert(`${alertSourceId}:${spec.id ?? spec.pattern}`);
     },
   };
 }

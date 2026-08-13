@@ -81,6 +81,36 @@
       opacity: 1;
       transform: translateX(-50%) scale(1);
     }
+    #charge-hud {
+      position: absolute;
+      left: 50%;
+      bottom: max(38px, calc(env(safe-area-inset-bottom) + 36px));
+      transform: translateX(-50%);
+      width: min(190px, 28vw);
+      min-width: 140px;
+      text-align: center;
+      font-size: 11px;
+      letter-spacing: 2px;
+      text-shadow: 0 0 7px #ffb347;
+    }
+    #charge-hud[hidden] { display: none; }
+    #charge-label { display: block; margin-bottom: 4px; }
+    #charge-bar-bg {
+      width: 100%; height: 7px;
+      background: rgba(40, 30, 20, 0.85);
+      border: 1px solid rgba(255, 190, 110, 0.8);
+    }
+    #charge-bar {
+      width: 0%; height: 100%;
+      background: #ffb347;
+      transition: width 0.08s linear, background 0.12s;
+    }
+    #charge-hud.ready { text-shadow: 0 0 9px #ffe477; }
+    #charge-hud.ready #charge-bar { background: #ffe477; }
+    #charge-hud.full {
+      text-shadow: 0 0 12px #fff, 0 0 18px #ffe477;
+    }
+    #charge-hud.full #charge-bar { background: #fff4a8; box-shadow: 0 0 8px #ffe477; }
     #shield-container {
       position: absolute;
       bottom: max(14px, env(safe-area-inset-bottom));
@@ -220,6 +250,27 @@
       font-size: 11px; font-weight: bold;
       letter-spacing: 0.5px;
     }
+    .touch-charge {
+      right: max(20px, env(safe-area-inset-right));
+      bottom: calc(154px + env(safe-area-inset-bottom));
+      width: 78px; height: 34px;
+      border-radius: 17px;
+      font-size: 11px; font-weight: bold;
+      letter-spacing: 0.5px;
+      color: #ffe477;
+      text-shadow: 0 0 7px #ffb347;
+    }
+    #touch-controls:not(.charge-available) .touch-charge {
+      opacity: 0.3;
+    }
+    .touch-charge.charge-active {
+      background: rgba(255, 179, 71, 0.45);
+      border-color: rgba(255, 228, 119, 0.9);
+    }
+    .touch-charge.charge-full {
+      background: rgba(255, 228, 119, 0.65);
+      box-shadow: 0 0 12px rgba(255, 228, 119, 0.75);
+    }
     .touch-roll {
       right: calc(116px + env(safe-area-inset-right));
       bottom: max(28px, env(safe-area-inset-bottom));
@@ -268,6 +319,7 @@
       .auto-fire-enabled .touch-fire { width: 68px; height: 68px; }
       .touch-roll { width: 68px; height: 68px; right: calc(102px + env(safe-area-inset-right)); }
       .touch-auto { bottom: calc(102px + env(safe-area-inset-bottom)); }
+      .touch-charge { bottom: calc(138px + env(safe-area-inset-bottom)); }
     }
 
     @media (orientation: portrait) {
@@ -286,6 +338,10 @@
       <div id="boss-hp-bg"><div id="boss-hp-bar"></div></div>
     </div>
     <div id="combat-alert" aria-live="polite"></div>
+    <div id="charge-hud" hidden aria-live="polite">
+      <span id="charge-label">CHARGE</span>
+      <div id="charge-bar-bg"><div id="charge-bar"></div></div>
+    </div>
     <div id="shield-container">
       <span id="shield-label">SHIELD</span>
       <div id="shield-bar-bg"><div id="shield-bar"></div></div>

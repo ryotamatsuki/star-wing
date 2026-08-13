@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 import { isAutoFireEnabled, isDown } from './input';
 import { Player } from './player';
+import { createPlayerWeaponController, PlayerWeaponController } from './player-weapons';
 import { Boss, createBoss } from './boss';
 import {
-  updateBullets, firePlayerBullet,
+  updateBullets,
   getPlayerBullets, getEnemyBullets,
   killBullet, clearBullets,
 } from './bullets';
@@ -16,18 +17,18 @@ import { sphereHit } from './collision';
 import {
   setScore, setShield, setStage, showMessage, hideMessage,
   showBossHud, updateBossHud, hideBossHud, updateHUD, triggerShake,
-  hideCombatAlert,
+  clearCombatAlerts,
 } from './hud';
 import { updateObstacles, getObstacles, resetObstacles, setStageTheme, setSceneBackground } from './terrain';
 import { updateItems, getItems, resetItems, ITEM_RADIUS, HEAL_AMOUNT } from './items';
-import { sfxLaser, sfxExplosion, sfxHit, sfxWarning, sfxClear, sfxShieldLow, sfxPickup } from './audio';
+import { sfxExplosion, sfxHit, sfxWarning, sfxClear, sfxShieldLow, sfxPickup } from './audio';
 import { isTouchActive } from './touch';
 
 // タイトル画面の操作説明(キーボード / タッチで切替)
 const TITLE_MSG = () =>
   isTouchActive()
     ? 'STAR WING\n\nLEFT DRAG: MOVE\nROLL: EVADE\nAUTO FIRE: ON\n\n[ START ]'
-    : 'STAR WING\n\n[ SPACE ] START\n[ V ] VIEW';
+    : 'STAR WING\n\n[ SPACE ] START\n[ C / SHIFT ] CHARGE\n[ V ] VIEW';
 
 // 「タイトルへ戻る」操作の表記
 const BACK_KEY = () => (isTouchActive() ? '[ TITLE ]' : '[ SPACE ] TITLE');
@@ -40,6 +41,8 @@ const PLAYER_BULLET_RADIUS_PC = 0.5;
 const PLAYER_BULLET_RADIUS_TOUCH = 0.56;
 const ENEMY_BULLET_RADIUS = 0.5;
 const BOSS_CHARGE_DAMAGE = 30;
+const BOSS_CHARGE_DAMAGE_MULTIPLIER = 0.5;
+const CHARGE_BULLET_RADIUS_MULTIPLIER = 1.45;
 const TOTAL_STAGES  = 5;
 
 // ステージごとの敵速度倍率
@@ -49,8 +52,9 @@ function getPlayerRadius(): number {
   return isTouchActive() ? PLAYER_RADIUS_TOUCH : PLAYER_RADIUS_PC;
 }
 
-function getPlayerBulletRadius(): number {
-  return isTouchActive() ? PLAYER_BULLET_RADIUS_TOUCH : PLAYER_BULLET_RADIUS_PC;
+function getPlayerBulletRadius(kind?: 'normal' | 'charge'): number {
+  const base = isTouchActive() ? PLAYER_BULLET_RADIUS_TOUCH : PLAYER_BULLET_RADIUS_PC;
+  return kind === 'charge' ? base * CHARGE_BULLET_RADIUS_MULTIPLIER : base;
 }
 
 export type GameState = 'title' | 'playing' | 'boss_warning' | 'boss' | 'stage_clear' | 'gameover' | 'clear';
@@ -62,7 +66,6 @@ export class Game {
   private stageStartScore = 0;
   private shield         = MAX_SHIELD;
   private stageTime      = 0;
-  private fireTimer      = 0;
   private hitFlash       = 0;
   private warningTimer   = 0;
   private currentStage   = 1;
@@ -71,10 +74,9 @@ export class Game {
   private prevSpace      = false;
   private lastChargeId   = -1;
   private pendingMessageTimers = new Set<number>();
+  private weapon: PlayerWeaponController;
 
   // フェーズ5: 演出
-  private muzzleFlash:    THREE.Mesh;
-  private muzzleLife      = 0;
   private shieldLowTimer  = 0;
   private bossHitSoundCd  = 0;
 
@@ -84,12 +86,7 @@ export class Game {
     private scene:  THREE.Scene,
   ) {
     // マズルフラッシュ
-    this.muzzleFlash = new THREE.Mesh(
-      new THREE.SphereGeometry(0.5, 5, 4),
-      new THREE.MeshBasicMaterial({ color: 0x88ffcc }),
-    );
-    this.muzzleFlash.visible = false;
-    scene.add(this.muzzleFlash);
+    this.weapon = createPlayerWeaponController(scene, player.group);
 
     showMessage(TITLE_MSG());
     setShield(MAX_SHIELD, MAX_SHIELD);
@@ -101,6 +98,7 @@ export class Game {
 
   private setState(next: GameState): void {
     if (this.state === next) return;
+    if (next !== 'playing' && next !== 'boss') this.weapon.cancelCharge();
     this.state = next;
     dispatchEvent(new CustomEvent<GameState>('game:state', { detail: next }));
   }
@@ -122,11 +120,6 @@ export class Game {
     updateHUD(dt, this.camera.position);
 
     // マズルフラッシュ
-    if (this.muzzleLife > 0) {
-      this.muzzleLife -= dt;
-      if (this.muzzleLife <= 0) this.muzzleFlash.visible = false;
-    }
-
     const spaceNow   = isDown('Space');
     const spaceFresh = spaceNow && !this.prevSpace;
     this.prevSpace   = spaceNow;
@@ -150,22 +143,13 @@ export class Game {
     this.bossHitSoundCd = Math.max(0, this.bossHitSoundCd - dt);
 
     // ── 射撃 ──────────────────────────────────────────────────────────────
-    this.fireTimer -= dt;
     const autoFire = isAutoFireEnabled() && (this.state === 'playing' || this.state === 'boss');
-    if ((isDown('Space') || autoFire) && this.fireTimer <= 0) {
-      const origin = this.player.group.position.clone();
-      origin.z -= 2;
-      firePlayerBullet(origin);
-      sfxLaser();
-      this.muzzleFlash.position.set(
-        this.player.group.position.x,
-        this.player.group.position.y + 0.3,
-        this.player.group.position.z - 3.5,
-      );
-      this.muzzleFlash.visible = true;
-      this.muzzleLife  = 0.04;
-      this.fireTimer   = 0.13;
-    }
+    this.weapon.update(dt, {
+      normalFire: isDown('Space'),
+      autoFire,
+      charge: isDown('KeyC') || isDown('ShiftLeft') || isDown('ShiftRight'),
+      active: this.state === 'playing' || this.state === 'boss',
+    });
 
     // ── シールド低下ビープ ────────────────────────────────────────────────
     if (this.shield < MAX_SHIELD * 0.3 && this.shield > 0) {
@@ -237,12 +221,12 @@ export class Game {
     // Core is checked first so one bullet cannot score both a weak-point and body hit.
     for (const b of pBullets) {
       if (this.boss.hp <= 0) break;
-      if (sphereHit(b.mesh.position, getPlayerBulletRadius(), coreWorld, this.boss.coreRadius)) {
+      if (sphereHit(b.mesh.position, getPlayerBulletRadius(b.kind), coreWorld, this.boss.coreRadius)) {
         killBullet(b);
         if (this.boss.isShielded) {
           spawnExplosion(b.mesh.position.clone(), 3, 0x88ddff); // シールド弾き
         } else {
-          this.boss.damage(3);
+          this.boss.damage(b.damage * 3 * (b.kind === 'charge' ? BOSS_CHARGE_DAMAGE_MULTIPLIER : 1));
           this.addScore(150);
           spawnExplosion(coreWorld, 5, 0xffaa00);
           sfxExplosion(false);
@@ -250,12 +234,12 @@ export class Game {
         continue;
       }
 
-      if (sphereHit(b.mesh.position, getPlayerBulletRadius(), this.boss.group.position, this.boss.radius)) {
+      if (sphereHit(b.mesh.position, getPlayerBulletRadius(b.kind), this.boss.group.position, this.boss.radius)) {
         killBullet(b);
         if (this.boss.isShielded) {
           spawnExplosion(b.mesh.position.clone(), 3, 0x88ddff);
         } else {
-          this.boss.damage(1);
+          this.boss.damage(b.damage * (b.kind === 'charge' ? BOSS_CHARGE_DAMAGE_MULTIPLIER : 1));
           this.addScore(50);
           if (this.bossHitSoundCd <= 0) { sfxHit(); this.bossHitSoundCd = 0.12; }
         }
@@ -296,8 +280,9 @@ export class Game {
   // ── ボス撃破 ──────────────────────────────────────────────────────────────
   private onBossDead(): void {
     sfxExplosion(true);
+    this.weapon.reset();
     hideBossHud();
-    hideCombatAlert();
+    clearCombatAlerts();
     this.clearPendingMessageTimers();
     if (this.currentStage < TOTAL_STAGES) {
       this.setState('stage_clear');
@@ -330,11 +315,9 @@ export class Game {
     this.setState('playing');
     this.shield         = MAX_SHIELD;
     this.stageTime    = 0;
-    this.fireTimer    = 0;
     this.hitFlash     = 0;
     this.warningTimer = 0;
-    this.muzzleFlash.visible = false;
-    this.muzzleLife   = 0;
+    this.weapon.reset();
     this.bossHitSoundCd = 0;
     this.lastChargeId = -1;
     this.shieldLowTimer = 0;
@@ -343,7 +326,7 @@ export class Game {
     this.boss?.reset();
     this.boss = null;
     hideBossHud();
-    hideCombatAlert();
+    clearCombatAlerts();
     resetEnemies();
     resetObstacles();
     resetItems();
@@ -366,15 +349,15 @@ export class Game {
         const weakPointHit = e.weakPoint && e.vulnerable
           ? sphereHit(
             b.mesh.position,
-            getPlayerBulletRadius(),
+            getPlayerBulletRadius(b.kind),
             e.weakPoint.getWorldPosition(new THREE.Vector3()),
             e.weakPointRadius,
           )
           : false;
-        const bodyHit = sphereHit(b.mesh.position, getPlayerBulletRadius(), e.group.position, e.radius);
+        const bodyHit = sphereHit(b.mesh.position, getPlayerBulletRadius(b.kind), e.group.position, e.radius);
         if (weakPointHit || bodyHit) {
           killBullet(b);
-          damageEnemy(e, weakPointHit ? 3 : 1);
+          damageEnemy(e, b.damage * (weakPointHit ? 3 : 1));
           if (weakPointHit && e.alive) {
             spawnTextPopup(e.group.position.clone(), 'WEAK POINT', '#ffe477');
           }
@@ -450,6 +433,7 @@ export class Game {
 
   // ── ダメージ ───────────────────────────────────────────────────────────────
   private takeDamage(dmg: number): void {
+    this.weapon.cancelCharge();
     this.shield = Math.max(0, this.shield - dmg);
     setShield(this.shield, MAX_SHIELD);
     triggerShake((dmg / 30) * (isTouchActive() ? 0.5 : 1));
@@ -460,7 +444,7 @@ export class Game {
     if (this.shield <= 0) {
       this.clearPendingMessageTimers();
       hideBossHud();
-      hideCombatAlert();
+      clearCombatAlerts();
       spawnExplosion(this.player.group.position.clone(), 20, 0xff6600);
       sfxExplosion(true);
       this.setState('gameover');
@@ -477,18 +461,16 @@ export class Game {
   private startGame(): void {
     this.clearPendingMessageTimers();
     hideBossHud();
-    hideCombatAlert();
+    clearCombatAlerts();
     this.currentStage   = 1;
     this.setState('playing');
     this.score          = 0;
     this.stageStartScore = 0;
     this.shield         = MAX_SHIELD;
     this.stageTime      = 0;
-    this.fireTimer      = 0;
     this.hitFlash       = 0;
     this.warningTimer   = 0;
-    this.muzzleFlash.visible = false;
-    this.muzzleLife     = 0;
+    this.weapon.reset();
     this.bossHitSoundCd = 0;
     this.lastChargeId   = -1;
     this.shieldLowTimer = 0;
@@ -514,15 +496,13 @@ export class Game {
   private restartCurrentStage(): void {
     this.clearPendingMessageTimers();
     hideBossHud();
-    hideCombatAlert();
+    clearCombatAlerts();
     this.setState('playing');
     this.shield         = MAX_SHIELD;
     this.stageTime      = 0;
-    this.fireTimer      = 0;
     this.hitFlash       = 0;
     this.warningTimer   = 0;
-    this.muzzleFlash.visible = false;
-    this.muzzleLife     = 0;
+    this.weapon.reset();
     this.bossHitSoundCd = 0;
     this.lastChargeId   = -1;
     this.shieldLowTimer = 0;
@@ -555,6 +535,7 @@ export class Game {
   private resetToTitle(): void {
     this.clearPendingMessageTimers();
     hideBossHud();
+    clearCombatAlerts();
     this.setState('title');
     setScore(0);
     setShield(MAX_SHIELD, MAX_SHIELD);
@@ -569,6 +550,7 @@ export class Game {
     clearBullets();
     clearEffects();
     this.player.reset();
+    this.weapon.reset();
     showMessage(TITLE_MSG());
   }
 }

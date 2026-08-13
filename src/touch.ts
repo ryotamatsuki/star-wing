@@ -227,6 +227,8 @@ export function initTouchControls(): void {
   const buttonResets: Array<() => void> = [];
   const registerButtonReset = (reset: () => void): void => { buttonResets.push(reset); };
 
+  let currentGameState = 'title';
+
   const fire = makeButton(
     'touch-fire',
     'START',
@@ -235,11 +237,21 @@ export function initTouchControls(): void {
     registerButtonReset,
   );
 
-  let currentGameState = 'title';
+  const isCombatState = (): boolean =>
+    currentGameState === 'playing' || currentGameState === 'boss';
+
+  const charge = makeButton(
+    'touch-charge',
+    'CHARGE',
+    () => { if (isCombatState()) setVirtual('KeyC', true); },
+    () => setVirtual('KeyC', false),
+    registerButtonReset,
+  );
+
   const updateTouchState = (state: string): void => {
     currentGameState = state;
     const isReturnState = state === 'gameover' || state === 'clear';
-    const isCombatState = state === 'playing' || state === 'boss_warning' || state === 'boss';
+    const isCombatState = state === 'playing' || state === 'boss';
     const fireLabel = state === 'title' ? 'START'
       : state === 'gameover' ? 'RETRY'
         : state === 'clear' ? 'TITLE'
@@ -249,6 +261,7 @@ export function initTouchControls(): void {
     root.classList.toggle('fire-start', state === 'title');
     root.classList.toggle('fire-return', isReturnState);
     root.classList.toggle('fire-passive', isCombatState && isAutoFireEnabled());
+    root.classList.toggle('charge-available', isCombatState);
   };
 
   let autoFireButton: HTMLDivElement;
@@ -294,7 +307,7 @@ export function initTouchControls(): void {
     registerButtonReset,
   );
 
-  root.append(safeAreaProbe, moveZone, stick, fire, autoFireButton, roll, view);
+  root.append(safeAreaProbe, moveZone, stick, fire, charge, autoFireButton, roll, view);
   document.body.appendChild(root);
 
   const resetControls = (): void => {
@@ -308,6 +321,14 @@ export function initTouchControls(): void {
   });
   addEventListener('game:roll-state', e => {
     updateRollState((e as CustomEvent<RollStateDetail>).detail);
+  });
+  addEventListener('game:charge-state', e => {
+    const detail = (e as CustomEvent<{ state: string; full: boolean }>).detail;
+    const active = detail.state !== 'idle';
+    charge.classList.toggle('charge-active', active);
+    charge.classList.toggle('charge-full', detail.full);
+    charge.textContent = detail.full ? 'FULL' : active ? 'CHARGING' : 'CHARGE';
+    charge.setAttribute('aria-label', detail.full ? 'Full charge' : active ? 'Charging' : 'Charge');
   });
   addEventListener('blur', resetControls);
   addEventListener('pagehide', resetControls);
