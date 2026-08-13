@@ -19,6 +19,7 @@ export const TARGETING_CONFIG = {
   maxDepth: 230,
   reticleDepth: 52,
   acquireInterval: 0.14,
+  rearmMoveDistance: 1.5,
 } as const;
 
 export interface TargetingController {
@@ -86,8 +87,10 @@ export function createTargetingController(
 
   const locked: LockedTarget[] = [];
   const targetPosition = new THREE.Vector3();
+  const lastAcquirePlayerPosition = new THREE.Vector3();
   let elapsed = 0;
   let nextAcquireAt = 0;
+  let acquisitionArmed = true;
 
   function updateMarkers(dt: number): void {
     for (let i = 0; i < markers.length; i++) {
@@ -150,11 +153,20 @@ export function createTargetingController(
     reticle.position.set(playerPos.x, playerPos.y, playerPos.z - TARGETING_CONFIG.reticleDepth);
     reticle.scale.setScalar(1 + Math.sin(elapsed * 7) * 0.05);
 
-    if (locked.length < maxLocks && elapsed >= nextAcquireAt) {
+    if (locked.length < maxLocks) {
       const candidate = chooseNextTarget(playerPos, candidates);
-      if (candidate) {
+      if (!acquisitionArmed) {
+        const movedSinceAcquire = playerPos.distanceTo(lastAcquirePlayerPosition)
+          >= TARGETING_CONFIG.rearmMoveDistance;
+        // A scan can also be re-armed by sweeping past an empty corridor.
+        if (movedSinceAcquire || !candidate) acquisitionArmed = true;
+      }
+
+      if (acquisitionArmed && elapsed >= nextAcquireAt && candidate) {
         const slot = locked.length + 1;
         locked.push({ ...candidate, acquiredAt: elapsed, slot });
+        lastAcquirePlayerPosition.copy(playerPos);
+        acquisitionArmed = false;
         nextAcquireAt = elapsed + TARGETING_CONFIG.acquireInterval;
         onAcquire(slot, candidate);
       }
@@ -165,6 +177,7 @@ export function createTargetingController(
   function clear(): void {
     locked.length = 0;
     nextAcquireAt = elapsed;
+    acquisitionArmed = true;
     reticle.visible = false;
     for (const marker of markers) {
       marker.target = undefined;
