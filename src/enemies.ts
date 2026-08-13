@@ -322,7 +322,12 @@ function updateSupport(): void {
   }
 }
 
-export function updateEnemies(dt: number, stageTime: number, playerPos: THREE.Vector3): void {
+export function updateEnemies(
+  dt: number,
+  stageTime: number,
+  playerPos: THREE.Vector3,
+  paceMultiplier: number,
+): void {
   while (encounterIdx < currentEncounters.length && stageTime >= currentEncounters[encounterIdx].startTime) {
     const encounter = currentEncounters[encounterIdx];
     const state = encounterStates.get(encounter.id);
@@ -399,6 +404,7 @@ export function updateEnemies(dt: number, stageTime: number, playerPos: THREE.Ve
       dt,
       playerPos,
       speedMult,
+      paceMultiplier,
       moveSpeed: e.definition.moveSpeed,
       flags: e.flags,
       chargeTarget: e.chargeTarget,

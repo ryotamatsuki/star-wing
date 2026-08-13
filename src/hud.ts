@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { ChargeStateDetail } from './player-weapons';
+import type { FlightPaceState } from './flight-pace';
 
 const scoreEl  = document.getElementById('score')!;
 const stageEl  = document.getElementById('stage')!;
@@ -11,6 +12,9 @@ const combatAlertEl = document.getElementById('combat-alert')!;
 const chargeHudEl = document.getElementById('charge-hud')!;
 const chargeBarEl = document.getElementById('charge-bar')!;
 const chargeLabelEl = document.getElementById('charge-label')!;
+const paceHudEl = document.getElementById('pace-hud')!;
+const paceLabelEl = document.getElementById('pace-label')!;
+const paceFeedbackEl = document.getElementById('pace-feedback')!;
 
 export function setScore(n: number): void {
   scoreEl.textContent = String(n);
@@ -73,6 +77,16 @@ export function updateChargeHud(detail: ChargeStateDetail): void {
     : detail.state === 'ready'
       ? `READY • LOCK ${detail.lockCount}/${detail.maxLocks}`
       : 'CHARGE';
+}
+
+export function updateFlightPaceHud(state: FlightPaceState, multiplier: number): void {
+  const active = state !== 'cruise';
+  paceHudEl.hidden = !active;
+  paceHudEl.classList.toggle('boost', state === 'boost');
+  paceHudEl.classList.toggle('brake', state === 'brake');
+  paceFeedbackEl.classList.toggle('boost', state === 'boost');
+  paceFeedbackEl.classList.toggle('brake', state === 'brake');
+  if (active) paceLabelEl.textContent = `${state.toUpperCase()} ${Math.round(multiplier * 100)}%`;
 }
 
 const combatAlerts = new Map<string, CombatAlert>();

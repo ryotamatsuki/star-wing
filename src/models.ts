@@ -74,6 +74,7 @@ export function createPlayerShip(): THREE.Group {
   const thrusterGeo = new THREE.RingGeometry(0.15, 0.26, 8);
   const thrusterMat = new THREE.MeshBasicMaterial({ color: 0x44aaff, side: THREE.DoubleSide });
   const thruster = new THREE.Mesh(thrusterGeo, thrusterMat);
+  thruster.name = 'player-thruster';
   thruster.position.set(0, 0, -1.1);
   ship.add(thruster);
 

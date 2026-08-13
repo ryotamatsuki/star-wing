@@ -240,11 +240,29 @@ export function initTouchControls(): void {
   const isCombatState = (): boolean =>
     currentGameState === 'playing' || currentGameState === 'boss';
 
+  const isPaceState = (): boolean => currentGameState === 'playing';
+
   const charge = makeButton(
     'touch-charge',
     'CHARGE',
     () => { if (isCombatState()) setVirtual('KeyC', true); },
     () => setVirtual('KeyC', false),
+    registerButtonReset,
+  );
+
+  const boost = makeButton(
+    'touch-pace touch-boost',
+    'BOOST',
+    () => { if (isPaceState()) setVirtual('KeyE', true); },
+    () => setVirtual('KeyE', false),
+    registerButtonReset,
+  );
+
+  const brake = makeButton(
+    'touch-pace touch-brake',
+    'BRAKE',
+    () => { if (isPaceState()) setVirtual('KeyQ', true); },
+    () => setVirtual('KeyQ', false),
     registerButtonReset,
   );
 
@@ -262,6 +280,13 @@ export function initTouchControls(): void {
     root.classList.toggle('fire-return', isReturnState);
     root.classList.toggle('fire-passive', isCombatState && isAutoFireEnabled());
     root.classList.toggle('charge-available', isCombatState);
+    root.classList.toggle('pace-unavailable', !isPaceState());
+    boost.setAttribute('aria-disabled', String(!isPaceState()));
+    brake.setAttribute('aria-disabled', String(!isPaceState()));
+    if (!isPaceState()) {
+      setVirtual('KeyE', false);
+      setVirtual('KeyQ', false);
+    }
   };
 
   let autoFireButton: HTMLDivElement;
@@ -307,7 +332,7 @@ export function initTouchControls(): void {
     registerButtonReset,
   );
 
-  root.append(safeAreaProbe, moveZone, stick, fire, charge, autoFireButton, roll, view);
+  root.append(safeAreaProbe, moveZone, stick, fire, charge, boost, brake, autoFireButton, roll, view);
   document.body.appendChild(root);
 
   const resetControls = (): void => {

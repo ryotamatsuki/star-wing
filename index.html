@@ -111,6 +111,42 @@
       text-shadow: 0 0 12px #fff, 0 0 18px #ffe477;
     }
     #charge-hud.full #charge-bar { background: #fff4a8; box-shadow: 0 0 8px #ffe477; }
+    #pace-feedback {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0;
+      background: repeating-linear-gradient(
+        104deg,
+        transparent 0 18px,
+        rgba(150, 235, 255, 0.22) 19px,
+        transparent 21px 42px
+      );
+      mix-blend-mode: screen;
+      transition: opacity 0.2s ease;
+    }
+    #pace-feedback.boost {
+      opacity: 0.22;
+      animation: pace-lines 0.32s linear infinite;
+    }
+    #pace-feedback.brake { opacity: 0; }
+    @keyframes pace-lines {
+      from { background-position: 0 0; }
+      to { background-position: 0 42px; }
+    }
+    #pace-hud {
+      position: absolute;
+      top: max(48px, calc(env(safe-area-inset-top) + 40px));
+      right: max(14px, env(safe-area-inset-right));
+      padding: 3px 6px;
+      font-size: 11px;
+      letter-spacing: 1px;
+      text-shadow: 0 0 7px currentColor;
+      opacity: 0.86;
+    }
+    #pace-hud[hidden] { display: none; }
+    #pace-hud.boost { color: #8eeaff; }
+    #pace-hud.brake { color: #ffe477; }
     #shield-container {
       position: absolute;
       bottom: max(14px, env(safe-area-inset-bottom));
@@ -271,6 +307,32 @@
       background: rgba(255, 228, 119, 0.65);
       box-shadow: 0 0 12px rgba(255, 228, 119, 0.75);
     }
+    .touch-pace {
+      width: 64px; height: 30px;
+      border-radius: 15px;
+      font-size: 10px; font-weight: bold;
+      letter-spacing: 0.4px;
+    }
+    .touch-boost {
+      right: max(20px, env(safe-area-inset-right));
+      bottom: calc(196px + env(safe-area-inset-bottom));
+      color: #8eeaff;
+      text-shadow: 0 0 7px #4ddcff;
+    }
+    .touch-brake {
+      right: calc(88px + env(safe-area-inset-right));
+      bottom: calc(196px + env(safe-area-inset-bottom));
+      color: #ffe477;
+      text-shadow: 0 0 7px #ffb347;
+    }
+    #touch-controls.pace-unavailable .touch-pace {
+      opacity: 0.28;
+      pointer-events: none;
+    }
+    .touch-pace.pressed {
+      background: rgba(120, 220, 255, 0.5);
+      border-color: rgba(255, 255, 255, 0.82);
+    }
     .touch-roll {
       right: calc(116px + env(safe-area-inset-right));
       bottom: max(28px, env(safe-area-inset-bottom));
@@ -320,6 +382,7 @@
       .touch-roll { width: 68px; height: 68px; right: calc(102px + env(safe-area-inset-right)); }
       .touch-auto { bottom: calc(102px + env(safe-area-inset-bottom)); }
       .touch-charge { bottom: calc(138px + env(safe-area-inset-bottom)); }
+      .touch-boost, .touch-brake { bottom: calc(174px + env(safe-area-inset-bottom)); }
     }
 
     @media (orientation: portrait) {
@@ -331,8 +394,10 @@
 <body>
   <canvas id="game"></canvas>
   <div id="hud">
+    <div id="pace-feedback"></div>
     <div id="score-display">SCORE: <span id="score">0</span></div>
     <div id="stage-display">STAGE <span id="stage">1</span></div>
+    <div id="pace-hud" hidden aria-live="polite"><span id="pace-label"></span></div>
     <div id="boss-hud" hidden>
       <div id="boss-label">BOSS</div>
       <div id="boss-hp-bg"><div id="boss-hp-bar"></div></div>

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
+import { flightPace } from './flight-pace';
 
-const SCROLL_SPEED = 60;
+const BASE_SCROLL_SPEED = 60;
 export const ITEM_RADIUS  = 2.2;  // 当たり判定半径
 export const HEAL_AMOUNT  = 25;   // 回復量
 
@@ -45,7 +46,7 @@ function spawnHealthItem(): void {
 
 export function updateItems(dt: number): void {
   // スポーンタイマー
-  spawnTimer -= dt;
+  spawnTimer -= flightPace.multiplier * dt;
   if (spawnTimer <= 0) {
     spawnHealthItem();
     spawnTimer = 22 + Math.random() * 14; // 次は22〜36秒後
@@ -61,7 +62,7 @@ export function updateItems(dt: number): void {
     }
 
     item.age += dt;
-    item.group.position.z += SCROLL_SPEED * dt;
+    item.group.position.z += BASE_SCROLL_SPEED * flightPace.multiplier * dt;
 
     // ぷるぷるアニメーション
     const pulse = 1 + Math.sin(item.age * 4) * 0.18;
