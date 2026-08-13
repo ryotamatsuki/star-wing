@@ -14,10 +14,12 @@ import {
   EncounterStatus,
   STAGE_ENCOUNTERS,
 } from './encounters';
+import type { LockCandidate } from './targeting';
 
 export interface Enemy {
   id: string;
   encounterId: string;
+  lockCandidate: LockCandidate;
   group: THREE.Group;
   hp: number;
   maxHp: number;
@@ -58,6 +60,7 @@ interface SpawnJob {
 
 const spawnQueue: SpawnJob[] = [];
 const encounterStates = new Map<string, EncounterState>();
+const lockCandidates: LockCandidate[] = [];
 
 function resetEncounterStates(): void {
   encounterStates.clear();
@@ -198,6 +201,7 @@ export function resetEnemies(): void {
     scene.remove(e.group);
   }
   enemies.length = 0;
+  lockCandidates.length = 0;
   spawnQueue.length = 0;
   encounterIdx = 0;
   nextEnemyId = 0;
@@ -215,9 +219,17 @@ function spawnEnemy(type: EnemyType, x: number, y: number, encounterId: string):
   scene.add(group);
   const id = `enemy-${nextEnemyId++}`;
   registerSpawn(encounterId);
-  enemies.push({
+  let enemy: Enemy | undefined;
+  const lockCandidate: LockCandidate = {
+    id,
+    object: group,
+    lockable: type !== 'mine',
+    isValid: () => Boolean(enemy?.alive),
+  };
+  enemy = {
     id,
     encounterId,
+    lockCandidate,
     group,
     hp: definition.hp,
     maxHp: definition.hp,
@@ -237,7 +249,9 @@ function spawnEnemy(type: EnemyType, x: number, y: number, encounterId: string):
     damageMultiplier: 1,
     shieldVisual: visual.shieldVisual,
     flags: {},
-  });
+  };
+  enemies.push(enemy);
+  lockCandidates.push(lockCandidate);
 }
 
 function spawnMineField(origin: THREE.Vector3, pattern: number, encounterId: string): void {
@@ -253,9 +267,17 @@ function spawnMineField(origin: THREE.Vector3, pattern: number, encounterId: str
     const id = `enemy-${nextEnemyId++}`;
     const state = getEncounterStateMutable(encounterId);
     if (state) state.live += 1;
-    enemies.push({
+    let enemy: Enemy | undefined;
+    const lockCandidate: LockCandidate = {
+      id,
+      object: visual,
+      lockable: false,
+      isValid: () => Boolean(enemy?.alive),
+    };
+    enemy = {
       id,
       encounterId,
+      lockCandidate,
       group: visual,
       hp: definition.hp,
       maxHp: definition.hp,
@@ -273,7 +295,9 @@ function spawnMineField(origin: THREE.Vector3, pattern: number, encounterId: str
       shielded: false,
       damageMultiplier: 1,
       flags: {},
-    });
+    };
+    enemies.push(enemy);
+    lockCandidates.push(lockCandidate);
   }
 }
 
@@ -339,6 +363,8 @@ export function updateEnemies(dt: number, stageTime: number, playerPos: THREE.Ve
       removeLiveEnemy(e.encounterId);
       e.attackController.dispose();
       scene.remove(e.group);
+      const candidateIndex = lockCandidates.indexOf(e.lockCandidate);
+      if (candidateIndex >= 0) lockCandidates.splice(candidateIndex, 1);
       enemies.splice(i, 1);
       continue;
     }
@@ -386,6 +412,8 @@ export function updateEnemies(dt: number, stageTime: number, playerPos: THREE.Ve
 }
 
 export function getEnemies(): Enemy[] { return enemies; }
+
+export function getLockCandidates(): readonly LockCandidate[] { return lockCandidates; }
 
 export function allWavesCleared(): boolean {
   return encounterIdx >= currentEncounters.length && spawnQueue.length === 0 && enemies.length === 0;

@@ -10,7 +10,7 @@ import {
 } from './bullets';
 import {
   updateEnemies, getEnemies, damageEnemy, resetEnemies,
-  allWavesCleared, setStageWaves, setEnemySpeedMult, getEnemyScore,
+  allWavesCleared, setStageWaves, setEnemySpeedMult, getEnemyScore, getLockCandidates,
 } from './enemies';
 import { updateEffects, spawnExplosion, clearEffects, spawnScorePopup, spawnTextPopup } from './effects';
 import { sphereHit } from './collision';
@@ -52,7 +52,7 @@ function getPlayerRadius(): number {
   return isTouchActive() ? PLAYER_RADIUS_TOUCH : PLAYER_RADIUS_PC;
 }
 
-function getPlayerBulletRadius(kind?: 'normal' | 'charge'): number {
+function getPlayerBulletRadius(kind?: 'normal' | 'charge' | 'lock'): number {
   const base = isTouchActive() ? PLAYER_BULLET_RADIUS_TOUCH : PLAYER_BULLET_RADIUS_PC;
   return kind === 'charge' ? base * CHARGE_BULLET_RADIUS_MULTIPLIER : base;
 }
@@ -86,7 +86,7 @@ export class Game {
     private scene:  THREE.Scene,
   ) {
     // マズルフラッシュ
-    this.weapon = createPlayerWeaponController(scene, player.group);
+    this.weapon = createPlayerWeaponController(scene, player.group, { getLockCandidates });
 
     showMessage(TITLE_MSG());
     setShield(MAX_SHIELD, MAX_SHIELD);
@@ -98,7 +98,7 @@ export class Game {
 
   private setState(next: GameState): void {
     if (this.state === next) return;
-    if (next !== 'playing' && next !== 'boss') this.weapon.cancelCharge();
+    if (next !== 'playing' && next !== 'boss') this.weapon.cancelCharge(true);
     this.state = next;
     dispatchEvent(new CustomEvent<GameState>('game:state', { detail: next }));
   }
@@ -433,7 +433,7 @@ export class Game {
 
   // ── ダメージ ───────────────────────────────────────────────────────────────
   private takeDamage(dmg: number): void {
-    this.weapon.cancelCharge();
+    this.weapon.cancelCharge(true);
     this.shield = Math.max(0, this.shield - dmg);
     setShield(this.shield, MAX_SHIELD);
     triggerShake((dmg / 30) * (isTouchActive() ? 0.5 : 1));

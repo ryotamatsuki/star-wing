@@ -1,10 +1,13 @@
 import * as THREE from 'three';
-import { fireChargeBullet, firePlayerBullet } from './bullets';
+import { fireChargeBullet, firePlayerBullet, firePlayerHomingVolley } from './bullets';
+import { createTargetingController, LockCandidate, TargetingController } from './targeting';
 import {
   sfxChargeFire,
   sfxChargeFull,
   sfxChargeReady,
   sfxChargeStart,
+  sfxLockAcquire,
+  sfxLockVolley,
   sfxLaser,
 } from './audio';
 
@@ -21,14 +24,21 @@ export interface ChargeStateDetail {
   state: ChargeState;
   progress: number;
   full: boolean;
+  lockCount: number;
+  maxLocks: number;
 }
 
 export interface PlayerWeaponController {
   update(dt: number, input: WeaponInput): void;
-  cancelCharge(): void;
+  cancelCharge(blockUntilRelease?: boolean): void;
   reset(): void;
   readonly chargeState: ChargeState;
   readonly chargeProgress: number;
+  readonly lockCount: number;
+}
+
+export interface PlayerWeaponOptions {
+  getLockCandidates(): readonly LockCandidate[];
 }
 
 export const WEAPON_CONFIG = {
@@ -38,6 +48,11 @@ export const WEAPON_CONFIG = {
   normalDamage: 1,
   readyChargeDamage: 4,
   fullChargeDamage: 10,
+  readyMaxLocks: 2,
+  fullMaxLocks: 4,
+  readyLockDamage: 2,
+  fullLockDamage: 3,
+  lockShotSpeed: 74,
 } as const;
 
 const PLAYER_BULLET_COLOR = 0x44ffaa;
@@ -51,11 +66,13 @@ function getBulletOrigin(playerGroup: THREE.Group): THREE.Vector3 {
 export function createPlayerWeaponController(
   scene: THREE.Scene,
   playerGroup: THREE.Group,
+  options: PlayerWeaponOptions,
 ): PlayerWeaponController {
   let fireTimer = 0;
   let chargeTime = 0;
   let state: ChargeState = 'idle';
   let effectTime = 0;
+  let chargeBlockedUntilRelease = false;
 
   const muzzleFlash = new THREE.Mesh(
     new THREE.SphereGeometry(0.5, 5, 4),
@@ -77,13 +94,27 @@ export function createPlayerWeaponController(
   chargeAura.visible = false;
   playerGroup.add(chargeAura);
 
+  const targeting: TargetingController = createTargetingController(scene, slot => sfxLockAcquire(slot));
+
+  function maxLocksForState(): number {
+    if (state === 'full') return WEAPON_CONFIG.fullMaxLocks;
+    if (state === 'ready') return WEAPON_CONFIG.readyMaxLocks;
+    return 0;
+  }
+
   function progress(): number {
     return Math.max(0, Math.min(1, chargeTime / WEAPON_CONFIG.chargeFullTime));
   }
 
   function emitChargeState(): void {
     dispatchEvent(new CustomEvent<ChargeStateDetail>('game:charge-state', {
-      detail: { state, progress: progress(), full: state === 'full' },
+      detail: {
+        state,
+        progress: progress(),
+        full: state === 'full',
+        lockCount: targeting.lockCount,
+        maxLocks: maxLocksForState(),
+      },
     }));
   }
 
@@ -103,6 +134,7 @@ export function createPlayerWeaponController(
   }
 
   function beginCharge(): void {
+    targeting.clear();
     state = 'charging';
     chargeTime = 0;
     effectTime = 0;
@@ -115,12 +147,24 @@ export function createPlayerWeaponController(
     if (state === 'idle') return;
     const fullCharge = state === 'full';
     if (chargeTime >= WEAPON_CONFIG.chargeReadyTime) {
-      fireChargeBullet(
-        getBulletOrigin(playerGroup),
-        fullCharge,
-        fullCharge ? WEAPON_CONFIG.fullChargeDamage : WEAPON_CONFIG.readyChargeDamage,
-      );
-      sfxChargeFire(fullCharge);
+      const origin = getBulletOrigin(playerGroup);
+      const lockedTargets = targeting.getLockedTargets();
+      const volleyCount = lockedTargets.length > 0
+        ? firePlayerHomingVolley(origin, lockedTargets, {
+          damage: fullCharge ? WEAPON_CONFIG.fullLockDamage : WEAPON_CONFIG.readyLockDamage,
+          speed: WEAPON_CONFIG.lockShotSpeed,
+        })
+        : 0;
+      if (volleyCount > 0) {
+        sfxLockVolley(volleyCount, fullCharge);
+      } else {
+        fireChargeBullet(
+          origin,
+          fullCharge,
+          fullCharge ? WEAPON_CONFIG.fullChargeDamage : WEAPON_CONFIG.readyChargeDamage,
+        );
+        sfxChargeFire(fullCharge);
+      }
       muzzleFlash.position.copy(getBulletOrigin(playerGroup));
       muzzleFlash.scale.setScalar(fullCharge ? 2.2 : 1.65);
       (muzzleFlash.material as THREE.MeshBasicMaterial).color.setHex(
@@ -132,6 +176,7 @@ export function createPlayerWeaponController(
     state = 'idle';
     chargeTime = 0;
     chargeAura.visible = false;
+    targeting.clear();
     emitChargeState();
   }
 
@@ -160,11 +205,12 @@ export function createPlayerWeaponController(
     if (muzzleLife <= 0) muzzleFlash.visible = false;
 
     if (!input.active) {
-      cancelCharge();
+      cancelCharge(true);
       return;
     }
 
     if (input.charge) {
+      if (chargeBlockedUntilRelease) return;
       if (state === 'idle') beginCharge();
       if (state !== 'full') {
         chargeTime = Math.min(WEAPON_CONFIG.chargeFullTime, chargeTime + dt);
@@ -177,10 +223,13 @@ export function createPlayerWeaponController(
           sfxChargeFull();
         }
       }
+      targeting.update(dt, playerGroup.position, options.getLockCandidates(), maxLocksForState());
       setChargeVisual();
       emitChargeState();
       return;
     }
+
+    chargeBlockedUntilRelease = false;
 
     if (state !== 'idle') {
       releaseCharge();
@@ -193,11 +242,13 @@ export function createPlayerWeaponController(
     }
   }
 
-  function cancelCharge(): void {
+  function cancelCharge(blockUntilRelease = false): void {
+    chargeBlockedUntilRelease ||= blockUntilRelease;
     const wasActive = state !== 'idle';
     state = 'idle';
     chargeTime = 0;
     chargeAura.visible = false;
+    targeting.clear();
     if (wasActive) emitChargeState();
   }
 
@@ -205,13 +256,15 @@ export function createPlayerWeaponController(
     fireTimer = 0;
     muzzleLife = 0;
     muzzleFlash.visible = false;
+    chargeBlockedUntilRelease = false;
+    targeting.clear();
     cancelCharge();
     emitChargeState();
   }
 
-  const cancelForRoll = (): void => cancelCharge();
+  const cancelForRoll = (): void => cancelCharge(true);
   const resetForPageState = (): void => reset();
-  addEventListener('game:roll', cancelForRoll);
+  addEventListener('game:roll-start', cancelForRoll);
   addEventListener('blur', resetForPageState);
   addEventListener('pagehide', resetForPageState);
   addEventListener('orientationchange', resetForPageState);
@@ -225,5 +278,6 @@ export function createPlayerWeaponController(
     reset,
     get chargeState() { return state; },
     get chargeProgress() { return progress(); },
+    get lockCount() { return targeting.lockCount; },
   };
 }

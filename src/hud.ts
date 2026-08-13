@@ -68,7 +68,11 @@ export function updateChargeHud(detail: ChargeStateDetail): void {
   chargeBarEl.style.width = `${detail.progress * 100}%`;
   chargeHudEl.classList.toggle('ready', detail.state === 'ready');
   chargeHudEl.classList.toggle('full', detail.full);
-  chargeLabelEl.textContent = detail.full ? 'FULL CHARGE' : detail.state === 'ready' ? 'READY' : 'CHARGE';
+  chargeLabelEl.textContent = detail.full
+    ? `FULL • LOCK ${detail.lockCount}/${detail.maxLocks}`
+    : detail.state === 'ready'
+      ? `READY • LOCK ${detail.lockCount}/${detail.maxLocks}`
+      : 'CHARGE';
 }
 
 const combatAlerts = new Map<string, CombatAlert>();
