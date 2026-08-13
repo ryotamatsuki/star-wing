@@ -63,6 +63,24 @@
       background: #f60;
       transition: width 0.12s linear;
     }
+    #combat-alert {
+      position: absolute;
+      top: max(82px, calc(env(safe-area-inset-top) + 72px));
+      left: 50%;
+      transform: translateX(-50%) scale(0.92);
+      min-width: 210px;
+      text-align: center;
+      font-size: clamp(15px, 2.4vw, 22px);
+      font-weight: bold;
+      letter-spacing: 2px;
+      text-shadow: 0 0 8px currentColor;
+      opacity: 0;
+      transition: opacity 0.08s, transform 0.08s;
+    }
+    #combat-alert.active {
+      opacity: 1;
+      transform: translateX(-50%) scale(1);
+    }
     #shield-container {
       position: absolute;
       bottom: max(14px, env(safe-area-inset-bottom));
@@ -267,6 +285,7 @@
       <div id="boss-label">BOSS</div>
       <div id="boss-hp-bg"><div id="boss-hp-bar"></div></div>
     </div>
+    <div id="combat-alert" aria-live="polite"></div>
     <div id="shield-container">
       <span id="shield-label">SHIELD</span>
       <div id="shield-bar-bg"><div id="shield-bar"></div></div>

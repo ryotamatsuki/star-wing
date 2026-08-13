@@ -102,6 +102,22 @@ export function sfxWarning(): void {
   });
 }
 
+export function sfxTelegraph(): void {
+  playTone('square', 620, 280, 0.18, 0.08);
+}
+
+export function sfxLock(): void {
+  playTone('square', 440, 880, 0.16, 0.1);
+}
+
+export function sfxCharge(): void {
+  playTone('sawtooth', 150, 70, 0.3, 0.14);
+}
+
+export function sfxMine(): void {
+  playTone('triangle', 260, 180, 0.16, 0.08);
+}
+
 // シールド低下警告ビープ(ループ呼び出し)
 export function sfxShieldLow(): void {
   playTone('square', 330, 330, 0.08, 0.08);

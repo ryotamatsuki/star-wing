@@ -7,6 +7,7 @@ import { initEffects } from './effects';
 import { initItems } from './items';
 import { initTouchControls, isTouchDevice, isTouchLayoutBlocked } from './touch';
 import { Game } from './game';
+import { hideCombatAlert, showCombatAlert } from './hud';
 
 // ─── シーン・カメラ・レンダラー ───────────────────────────────────────────────
 const scene = new THREE.Scene();
@@ -42,6 +43,17 @@ initEnemies(scene, () => {});
 initTouchControls();
 
 const game = new Game(player, camera, scene);
+
+let encounterHintToken = 0;
+addEventListener('combat:encounter', e => {
+  const detail = (e as CustomEvent<{ objective?: string }>).detail;
+  if (!detail.objective) return;
+  const token = ++encounterHintToken;
+  showCombatAlert(detail.objective, '#ffe477', 1);
+  window.setTimeout(() => {
+    if (token === encounterHintToken) hideCombatAlert(detail.objective);
+  }, 2600);
+});
 
 // ─── ウィンドウリサイズ ────────────────────────────────────────────────────────
 addEventListener('resize', () => {

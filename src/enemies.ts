@@ -1,175 +1,127 @@
 import * as THREE from 'three';
 import { createEnemyA } from './models';
-import { fireEnemyBullet } from './bullets';
 import { spawnExplosion } from './effects';
+import { createAttackController, AttackController } from './attacks';
+import {
+  ENEMY_DEFINITIONS,
+  EnemyDefinition,
+  EnemyType,
+  MOVEMENT_PATTERNS,
+} from './enemy-definitions';
+import { EncounterDefinition, STAGE_ENCOUNTERS } from './encounters';
 
-// ─── 敵の定義 ────────────────────────────────────────────────────────────────
-
-interface Enemy {
+export interface Enemy {
   group: THREE.Group;
   hp: number;
+  maxHp: number;
   radius: number;
   alive: boolean;
   age: number;
-  type: 'straight' | 'sine' | 'turret';
+  type: EnemyType;
   baseX: number;
-  shootCd: number;
+  baseY: number;
+  score: number;
+  definition: EnemyDefinition;
+  attackController: AttackController;
+  weakPoint?: THREE.Object3D;
+  weakPointRadius: number;
+  vulnerable: boolean;
+  shielded: boolean;
+  damageMultiplier: number;
+  shieldVisual?: THREE.Object3D;
+  flags: Record<string, boolean>;
+  chargeTarget?: THREE.Vector3;
 }
 
 const enemies: Enemy[] = [];
 let scene: THREE.Scene;
 let onKill: (pos: THREE.Vector3, score: number) => void;
 let speedMult = 1.0;
+let currentEncounters: EncounterDefinition[] = STAGE_ENCOUNTERS[0];
+let encounterIdx = 0;
 
-// ─── ウェーブ定義 ─────────────────────────────────────────────────────────────
-interface WaveEntry {
-  time: number;
-  type: 'straight' | 'sine' | 'turret';
+interface SpawnJob {
+  at: number;
+  type: EnemyType;
   x: number;
   y: number;
-  count: number;
-  gap: number;
 }
 
-// Stage 1: 森林 ─────────────────────────────────────────────────────────────
-const STAGE1_WAVES: WaveEntry[] = [
-  { time:  3, type: 'straight', x:  -6, y: 6,  count: 2, gap: 0.4  },
-  { time:  5, type: 'straight', x:   6, y: 6,  count: 2, gap: 0.4  },
-  { time:  9, type: 'sine',     x:   0, y: 8,  count: 3, gap: 0.6  },
-  { time: 14, type: 'turret',   x:  -8, y: 0,  count: 1, gap: 0    },
-  { time: 14, type: 'turret',   x:   8, y: 0,  count: 1, gap: 0    },
-  { time: 20, type: 'straight', x: -10, y: 7,  count: 3, gap: 0.3  },
-  { time: 20, type: 'straight', x:  10, y: 7,  count: 3, gap: 0.3  },
-  { time: 28, type: 'sine',     x:  -4, y: 9,  count: 4, gap: 0.5  },
-  { time: 35, type: 'turret',   x: -12, y: 0,  count: 1, gap: 0    },
-  { time: 35, type: 'turret',   x:  12, y: 0,  count: 1, gap: 0    },
-  { time: 35, type: 'turret',   x:   0, y: 0,  count: 1, gap: 0    },
-  { time: 43, type: 'sine',     x:   0, y: 10, count: 5, gap: 0.4  },
-  { time: 52, type: 'straight', x:  -8, y: 7,  count: 4, gap: 0.25 },
-  { time: 52, type: 'straight', x:   8, y: 7,  count: 4, gap: 0.25 },
-  { time: 60, type: 'turret',   x:  -6, y: 0,  count: 1, gap: 0    },
-  { time: 60, type: 'turret',   x:   6, y: 0,  count: 1, gap: 0    },
-  { time: 68, type: 'sine',     x:   4, y: 8,  count: 6, gap: 0.3  },
-];
-
-// Stage 2: 峡谷 ─────────────────────────────────────────────────────────────
-const STAGE2_WAVES: WaveEntry[] = [
-  { time:  2, type: 'straight', x:  -5, y: 6,  count: 3, gap: 0.3  },
-  { time:  3, type: 'straight', x:   5, y: 6,  count: 3, gap: 0.3  },
-  { time:  7, type: 'sine',     x:   0, y: 8,  count: 4, gap: 0.5  },
-  { time: 10, type: 'turret',   x:  -8, y: 0,  count: 1, gap: 0    },
-  { time: 10, type: 'turret',   x:   8, y: 0,  count: 1, gap: 0    },
-  { time: 15, type: 'straight', x: -10, y: 7,  count: 4, gap: 0.28 },
-  { time: 15, type: 'straight', x:  10, y: 7,  count: 4, gap: 0.28 },
-  { time: 20, type: 'sine',     x:  -4, y: 9,  count: 5, gap: 0.42 },
-  { time: 24, type: 'turret',   x: -10, y: 0,  count: 2, gap: 4    },
-  { time: 24, type: 'turret',   x:  10, y: 0,  count: 2, gap: 4    },
-  { time: 30, type: 'straight', x:  -8, y: 6,  count: 5, gap: 0.22 },
-  { time: 30, type: 'straight', x:   8, y: 6,  count: 5, gap: 0.22 },
-  { time: 36, type: 'sine',     x:   0, y: 10, count: 6, gap: 0.38 },
-  { time: 40, type: 'turret',   x: -12, y: 0,  count: 1, gap: 0    },
-  { time: 40, type: 'turret',   x:   0, y: 0,  count: 1, gap: 0    },
-  { time: 40, type: 'turret',   x:  12, y: 0,  count: 1, gap: 0    },
-  { time: 46, type: 'sine',     x:   4, y: 8,  count: 6, gap: 0.32 },
-  { time: 52, type: 'straight', x:  -6, y: 7,  count: 5, gap: 0.2  },
-  { time: 52, type: 'straight', x:   6, y: 7,  count: 5, gap: 0.2  },
-  { time: 58, type: 'turret',   x:  -8, y: 0,  count: 2, gap: 4    },
-  { time: 58, type: 'turret',   x:   8, y: 0,  count: 2, gap: 4    },
-  { time: 64, type: 'sine',     x:   0, y: 9,  count: 7, gap: 0.28 },
-];
-
-// Stage 3: 氷河 ─────────────────────────────────────────────────────────────
-const STAGE3_WAVES: WaveEntry[] = [
-  { time:  2, type: 'sine',     x:  -4, y: 8,  count: 3, gap: 0.5  },
-  { time:  2, type: 'sine',     x:   4, y: 8,  count: 3, gap: 0.5  },
-  { time:  7, type: 'straight', x:   0, y: 6,  count: 4, gap: 0.28 },
-  { time: 11, type: 'turret',   x:  -6, y: 0,  count: 1, gap: 0    },
-  { time: 11, type: 'turret',   x:   6, y: 0,  count: 1, gap: 0    },
-  { time: 15, type: 'sine',     x:   0, y: 10, count: 5, gap: 0.4  },
-  { time: 19, type: 'turret',   x: -10, y: 0,  count: 2, gap: 4    },
-  { time: 19, type: 'straight', x:   0, y: 7,  count: 4, gap: 0.25 },
-  { time: 25, type: 'sine',     x:  -6, y: 9,  count: 5, gap: 0.35 },
-  { time: 25, type: 'sine',     x:   6, y: 9,  count: 5, gap: 0.35 },
-  { time: 31, type: 'turret',   x: -12, y: 0,  count: 1, gap: 0    },
-  { time: 31, type: 'turret',   x:   0, y: 0,  count: 1, gap: 0    },
-  { time: 31, type: 'turret',   x:  12, y: 0,  count: 1, gap: 0    },
-  { time: 37, type: 'sine',     x:   0, y: 8,  count: 7, gap: 0.28 },
-  { time: 43, type: 'straight', x: -10, y: 6,  count: 5, gap: 0.2  },
-  { time: 43, type: 'straight', x:  10, y: 6,  count: 5, gap: 0.2  },
-  { time: 49, type: 'turret',   x:  -8, y: 0,  count: 2, gap: 4    },
-  { time: 49, type: 'turret',   x:   8, y: 0,  count: 2, gap: 4    },
-  { time: 55, type: 'sine',     x:   2, y: 10, count: 8, gap: 0.25 },
-  { time: 61, type: 'turret',   x: -14, y: 0,  count: 1, gap: 0    },
-  { time: 61, type: 'turret',   x:  -4, y: 0,  count: 1, gap: 0    },
-  { time: 61, type: 'turret',   x:   4, y: 0,  count: 1, gap: 0    },
-  { time: 61, type: 'turret',   x:  14, y: 0,  count: 1, gap: 0    },
-];
-
-// Stage 4: 火山 ─────────────────────────────────────────────────────────────
-const STAGE4_WAVES: WaveEntry[] = [
-  { time:  2, type: 'straight', x:  -4, y: 6,  count: 4, gap: 0.22 },
-  { time:  2, type: 'straight', x:   4, y: 6,  count: 4, gap: 0.22 },
-  { time:  6, type: 'turret',   x:  -8, y: 0,  count: 1, gap: 0    },
-  { time:  6, type: 'turret',   x:   8, y: 0,  count: 1, gap: 0    },
-  { time: 10, type: 'straight', x: -10, y: 7,  count: 5, gap: 0.2  },
-  { time: 10, type: 'straight', x:  10, y: 7,  count: 5, gap: 0.2  },
-  { time: 15, type: 'sine',     x:   0, y: 8,  count: 5, gap: 0.35 },
-  { time: 18, type: 'turret',   x: -10, y: 0,  count: 2, gap: 4    },
-  { time: 18, type: 'turret',   x:  10, y: 0,  count: 2, gap: 4    },
-  { time: 23, type: 'straight', x:  -6, y: 6,  count: 6, gap: 0.18 },
-  { time: 23, type: 'straight', x:   6, y: 6,  count: 6, gap: 0.18 },
-  { time: 28, type: 'sine',     x:  -4, y: 9,  count: 6, gap: 0.28 },
-  { time: 28, type: 'sine',     x:   4, y: 9,  count: 6, gap: 0.28 },
-  { time: 34, type: 'turret',   x: -12, y: 0,  count: 3, gap: 4    },
-  { time: 34, type: 'turret',   x:  12, y: 0,  count: 3, gap: 4    },
-  { time: 40, type: 'straight', x:   0, y: 7,  count: 8, gap: 0.16 },
-  { time: 45, type: 'sine',     x:   0, y: 10, count: 8, gap: 0.22 },
-  { time: 50, type: 'turret',   x: -12, y: 0,  count: 2, gap: 4    },
-  { time: 50, type: 'turret',   x:  -4, y: 0,  count: 2, gap: 4    },
-  { time: 50, type: 'turret',   x:   4, y: 0,  count: 2, gap: 4    },
-  { time: 50, type: 'turret',   x:  12, y: 0,  count: 2, gap: 4    },
-  { time: 56, type: 'straight', x:  -8, y: 6,  count: 6, gap: 0.15 },
-  { time: 56, type: 'straight', x:   8, y: 6,  count: 6, gap: 0.15 },
-];
-
-// Stage 5: 宇宙 ─────────────────────────────────────────────────────────────
-const STAGE5_WAVES: WaveEntry[] = [
-  { time:  1, type: 'straight', x:  -5, y: 6,  count: 4,  gap: 0.2  },
-  { time:  1, type: 'straight', x:   5, y: 6,  count: 4,  gap: 0.2  },
-  { time:  4, type: 'sine',     x:   0, y: 8,  count: 5,  gap: 0.32 },
-  { time:  7, type: 'turret',   x:  -8, y: 0,  count: 2,  gap: 4    },
-  { time:  7, type: 'turret',   x:   8, y: 0,  count: 2,  gap: 4    },
-  { time: 11, type: 'straight', x: -10, y: 7,  count: 6,  gap: 0.16 },
-  { time: 11, type: 'straight', x:  10, y: 7,  count: 6,  gap: 0.16 },
-  { time: 15, type: 'sine',     x:  -4, y: 9,  count: 7,  gap: 0.25 },
-  { time: 15, type: 'sine',     x:   4, y: 9,  count: 7,  gap: 0.25 },
-  { time: 20, type: 'turret',   x: -12, y: 0,  count: 2,  gap: 4    },
-  { time: 20, type: 'turret',   x:   0, y: 0,  count: 2,  gap: 4    },
-  { time: 20, type: 'turret',   x:  12, y: 0,  count: 2,  gap: 4    },
-  { time: 25, type: 'straight', x:  -6, y: 6,  count: 7,  gap: 0.14 },
-  { time: 25, type: 'straight', x:   6, y: 6,  count: 7,  gap: 0.14 },
-  { time: 29, type: 'sine',     x:   0, y: 10, count: 9,  gap: 0.2  },
-  { time: 34, type: 'turret',   x: -14, y: 0,  count: 2,  gap: 4    },
-  { time: 34, type: 'turret',   x:  -4, y: 0,  count: 2,  gap: 4    },
-  { time: 34, type: 'turret',   x:   4, y: 0,  count: 2,  gap: 4    },
-  { time: 34, type: 'turret',   x:  14, y: 0,  count: 2,  gap: 4    },
-  { time: 39, type: 'straight', x:  -8, y: 7,  count: 8,  gap: 0.13 },
-  { time: 39, type: 'straight', x:   8, y: 7,  count: 8,  gap: 0.13 },
-  { time: 43, type: 'sine',     x:  -6, y: 9,  count: 8,  gap: 0.18 },
-  { time: 43, type: 'sine',     x:   6, y: 9,  count: 8,  gap: 0.18 },
-  { time: 48, type: 'turret',   x: -12, y: 0,  count: 3,  gap: 4    },
-  { time: 48, type: 'turret',   x:   0, y: 0,  count: 3,  gap: 4    },
-  { time: 48, type: 'turret',   x:  12, y: 0,  count: 3,  gap: 4    },
-  { time: 53, type: 'straight', x:   0, y: 6,  count: 10, gap: 0.11 },
-];
-
-const ALL_WAVES = [STAGE1_WAVES, STAGE2_WAVES, STAGE3_WAVES, STAGE4_WAVES, STAGE5_WAVES];
-
-// ─── スポーンキュー ───────────────────────────────────────────────────────────
-interface SpawnJob { at: number; type: WaveEntry['type']; x: number; y: number; }
 const spawnQueue: SpawnJob[] = [];
-let currentWaves: WaveEntry[] = STAGE1_WAVES;
-let waveIdx = 0;
+
+function addRing(group: THREE.Group, radius: number, color: number, opacity = 0.75): THREE.Mesh {
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(radius, 0.12, 6, 20),
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity }),
+  );
+  ring.rotation.x = Math.PI / 2;
+  group.add(ring);
+  return ring;
+}
+
+function makeMineVisual(): THREE.Group {
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(
+    new THREE.SphereGeometry(1.15, 8, 6),
+    new THREE.MeshLambertMaterial({ color: 0xff4a3d, flatShading: true }),
+  );
+  const ring = addRing(group, 1.65, 0xffaa44, 0.9);
+  const spikes = new THREE.Mesh(
+    new THREE.OctahedronGeometry(1.65, 0),
+    new THREE.MeshBasicMaterial({ color: 0xff3322, wireframe: true }),
+  );
+  group.add(body, ring, spikes);
+  return group;
+}
+
+function makeEnemyVisual(definition: EnemyDefinition): { group: THREE.Group; weakPoint?: THREE.Object3D; shieldVisual?: THREE.Object3D } {
+  if (definition.type === 'mine') return { group: makeMineVisual() };
+
+  const group = createEnemyA();
+  const body = group.children[0] as THREE.Mesh;
+  const bodyMat = body.material as THREE.MeshLambertMaterial;
+  bodyMat.color.setHex(definition.color);
+
+  if (definition.type === 'sniper') {
+    addRing(group, 2.8, 0xff3344, 0.6);
+  } else if (definition.type === 'shieldDrone') {
+    addRing(group, 2.9, 0x66ccff, 0.95);
+    addRing(group, 3.3, 0x2266ff, 0.4);
+  } else if (definition.type === 'kamikaze') {
+    addRing(group, 2.4, 0xff5522, 0.9);
+  } else if (definition.type === 'missileCarrier') {
+    addRing(group, 3.2, 0xffcc44, 0.65);
+    const launcherMat = new THREE.MeshLambertMaterial({ color: 0xffaa33, flatShading: true });
+    const launcherGeo = new THREE.CylinderGeometry(0.32, 0.5, 2.5, 6);
+    for (const x of [-1.2, 1.2]) {
+      const launcher = new THREE.Mesh(launcherGeo, launcherMat);
+      launcher.rotation.x = Math.PI / 2;
+      launcher.position.set(x, 0.5, 0.8);
+      group.add(launcher);
+    }
+  } else if (definition.type === 'mineLayer') {
+    addRing(group, 3.0, 0x66ee88, 0.65);
+    bodyMat.color.setHex(0x248c58);
+  }
+
+  let weakPoint: THREE.Object3D | undefined;
+  if (definition.type === 'armoredFighter') {
+    const armorRing = addRing(group, 3.2, 0xb8c9dd, 0.65);
+    armorRing.rotation.z = Math.PI / 2;
+    const core = new THREE.Mesh(
+      new THREE.SphereGeometry(0.85, 8, 6),
+      new THREE.MeshBasicMaterial({ color: 0xffde55 }),
+    );
+    core.position.set(0, 0, 1.25);
+    core.visible = false;
+    group.add(core);
+    weakPoint = core;
+  }
+
+  const shieldVisual = addRing(group, definition.radius * 1.55, 0x55bfff, 0.8);
+  shieldVisual.visible = false;
+  return { group, weakPoint, shieldVisual };
+}
 
 export function initEnemies(s: THREE.Scene, killCb: (pos: THREE.Vector3, score: number) => void): void {
   scene = s;
@@ -177,7 +129,7 @@ export function initEnemies(s: THREE.Scene, killCb: (pos: THREE.Vector3, score: 
 }
 
 export function setStageWaves(stage: number): void {
-  currentWaves = ALL_WAVES[Math.min(stage - 1, ALL_WAVES.length - 1)];
+  currentEncounters = STAGE_ENCOUNTERS[Math.min(stage - 1, STAGE_ENCOUNTERS.length - 1)];
 }
 
 export function setEnemySpeedMult(mult: number): void {
@@ -185,93 +137,189 @@ export function setEnemySpeedMult(mult: number): void {
 }
 
 export function resetEnemies(): void {
-  for (const e of enemies) scene.remove(e.group);
+  for (const e of enemies) {
+    e.attackController.dispose();
+    scene.remove(e.group);
+  }
   enemies.length = 0;
   spawnQueue.length = 0;
-  waveIdx = 0;
+  encounterIdx = 0;
 }
 
-function spawnEnemy(type: WaveEntry['type'], x: number, y: number): void {
-  const group = createEnemyA();
-  const mat = (group.children[0] as THREE.Mesh).material as THREE.MeshLambertMaterial;
-
-  let radius = 2;
-  if (type === 'sine')   { mat.color.setHex(0xccaa00); radius = 2; }
-  if (type === 'turret') { mat.color.setHex(0x666666); group.scale.setScalar(1.5); radius = 2.5; }
-
-  group.position.set(x, y, -200);
-  if (type === 'turret') { group.position.y = 0; group.position.z = -80; }
+function spawnEnemy(type: EnemyType, x: number, y: number): void {
+  const definition = ENEMY_DEFINITIONS[type];
+  const visual = makeEnemyVisual(definition);
+  const group = visual.group;
+  group.scale.setScalar(definition.scale);
+  group.position.set(x, y, type === 'turret' ? -80 : -200);
+  if (type === 'turret') group.position.y = 0;
 
   scene.add(group);
   enemies.push({
-    group, hp: type === 'turret' ? 3 : 1,
-    radius, alive: true, age: 0, type,
-    baseX: x, shootCd: type === 'turret' ? 2 : 999,
+    group,
+    hp: definition.hp,
+    maxHp: definition.hp,
+    radius: definition.radius,
+    alive: true,
+    age: 0,
+    type,
+    baseX: x,
+    baseY: y,
+    score: definition.score,
+    definition,
+    attackController: createAttackController(scene, definition.attacks),
+    weakPoint: visual.weakPoint,
+    weakPointRadius: definition.weakPointRadius ?? 0,
+    vulnerable: false,
+    shielded: false,
+    damageMultiplier: 1,
+    shieldVisual: visual.shieldVisual,
+    flags: {},
   });
 }
 
+function spawnMineField(origin: THREE.Vector3, pattern: number): void {
+  const laneX = [-8, 0, 8];
+  const occupied = pattern === 0 ? [0, 1] : pattern === 1 ? [1, 2] : [0, 2];
+  const laneY = pattern === 2 ? [4.5, 8.5] : [5.5, 6.5];
+  for (let i = 0; i < occupied.length; i++) {
+    const lane = occupied[i];
+    const visual = makeMineVisual();
+    visual.position.set(laneX[lane], laneY[i], origin.z);
+    scene.add(visual);
+    const definition = ENEMY_DEFINITIONS.mine;
+    enemies.push({
+      group: visual,
+      hp: definition.hp,
+      maxHp: definition.hp,
+      radius: definition.radius,
+      alive: true,
+      age: 0,
+      type: 'mine',
+      baseX: laneX[lane],
+      baseY: laneY[i],
+      score: definition.score,
+      definition,
+      attackController: createAttackController(scene, []),
+      weakPointRadius: 0,
+      vulnerable: false,
+      shielded: false,
+      damageMultiplier: 1,
+      flags: {},
+    });
+  }
+}
+
+function updateSupport(): void {
+  for (const e of enemies) {
+    e.shielded = false;
+    e.damageMultiplier = 1;
+    if (e.shieldVisual) e.shieldVisual.visible = false;
+  }
+
+  for (const source of enemies) {
+    if (!source.alive || !source.definition.support) continue;
+    const support = source.definition.support;
+    for (const target of enemies) {
+      if (!target.alive || target === source || target.type === 'mine') continue;
+      if (source.group.position.distanceTo(target.group.position) <= support.radius) {
+        target.shielded = true;
+        target.damageMultiplier = Math.min(target.damageMultiplier, support.damageMultiplier);
+        if (target.shieldVisual) target.shieldVisual.visible = true;
+      }
+    }
+  }
+}
+
 export function updateEnemies(dt: number, stageTime: number, playerPos: THREE.Vector3): void {
-  // ウェーブ発火
-  while (waveIdx < currentWaves.length && stageTime >= currentWaves[waveIdx].time) {
-    const w = currentWaves[waveIdx];
-    for (let i = 0; i < w.count; i++) {
-      spawnQueue.push({ at: stageTime + i * w.gap, type: w.type, x: w.x, y: w.y });
+  while (encounterIdx < currentEncounters.length && stageTime >= currentEncounters[encounterIdx].startTime) {
+    const encounter = currentEncounters[encounterIdx];
+    for (const spawn of encounter.enemies) {
+      const count = spawn.count ?? 1;
+      const gap = spawn.gap ?? 0;
+      for (let i = 0; i < count; i++) {
+        spawnQueue.push({ at: encounter.startTime + i * gap, type: spawn.type, x: spawn.x, y: spawn.y });
+      }
     }
-    waveIdx++;
+    dispatchEvent(new CustomEvent('combat:encounter', {
+      detail: { id: encounter.id, objective: encounter.objective ?? '' },
+    }));
+    encounterIdx++;
   }
 
-  // スポーンキュー
   for (let i = spawnQueue.length - 1; i >= 0; i--) {
-    if (stageTime >= spawnQueue[i].at) {
-      const { type, x, y } = spawnQueue[i];
-      spawnQueue.splice(i, 1);
-      spawnEnemy(type, x, y);
-    }
+    if (stageTime < spawnQueue[i].at) continue;
+    const { type, x, y } = spawnQueue[i];
+    spawnQueue.splice(i, 1);
+    spawnEnemy(type, x, y);
   }
 
-  // 各敵の更新
   for (let i = enemies.length - 1; i >= 0; i--) {
     const e = enemies[i];
-    if (!e.alive) { scene.remove(e.group); enemies.splice(i, 1); continue; }
-
-    e.age += dt;
-
-    switch (e.type) {
-      case 'straight':
-        e.group.position.z += 40 * speedMult * dt;
-        e.group.rotation.x = 0.1;
-        break;
-      case 'sine':
-        e.group.position.z += 35 * speedMult * dt;
-        e.group.position.x = e.baseX + Math.sin(e.age * 2.2) * 8;
-        break;
-      case 'turret':
-        e.group.lookAt(playerPos);
-        e.shootCd -= dt;
-        if (e.shootCd <= 0) {
-          fireEnemyBullet(e.group.position.clone(), playerPos.clone());
-          e.shootCd = 2.5;
-        }
-        break;
+    if (!e.alive) {
+      e.attackController.dispose();
+      scene.remove(e.group);
+      enemies.splice(i, 1);
+      continue;
     }
 
-    if (e.group.position.z > 25 && e.type !== 'turret') e.alive = false;
+    e.age += dt;
+    e.flags.chargeActive = false;
+    e.flags.vulnerable = false;
+    const attackContext = {
+      scene,
+      group: e.group,
+      age: e.age,
+      dt,
+      playerPos,
+      flags: e.flags,
+      chargeTarget: e.chargeTarget,
+      spawnMineField,
+    };
+    e.attackController.update(attackContext);
+    e.chargeTarget = attackContext.chargeTarget;
+    e.vulnerable = Boolean(e.flags.vulnerable);
+    if (e.weakPoint) {
+      e.weakPoint.visible = e.vulnerable;
+      e.weakPoint.scale.setScalar(1 + Math.sin(e.age * 12) * 0.12);
+    }
+
+    MOVEMENT_PATTERNS[e.definition.movement]({
+      group: e.group,
+      baseX: e.baseX,
+      baseY: e.baseY,
+      age: e.age,
+      dt,
+      playerPos,
+      speedMult,
+      moveSpeed: e.definition.moveSpeed,
+      flags: e.flags,
+      chargeTarget: e.chargeTarget,
+    });
+
+    if (e.group.position.z > 28) e.alive = false;
   }
+
+  updateSupport();
 }
 
 export function getEnemies(): Enemy[] { return enemies; }
 
 export function allWavesCleared(): boolean {
-  return waveIdx >= currentWaves.length && spawnQueue.length === 0 && enemies.length === 0;
+  return encounterIdx >= currentEncounters.length && spawnQueue.length === 0 && enemies.length === 0;
 }
 
 export function damageEnemy(e: Enemy, dmg: number): void {
-  e.hp -= dmg;
+  if (!e.alive) return;
+  const armorMultiplier = e.type === 'armoredFighter' && !e.vulnerable ? 0.08 : 1;
+  e.hp -= dmg * e.damageMultiplier * armorMultiplier;
   if (e.hp <= 0) {
     e.alive = false;
-    spawnExplosion(e.group.position.clone(), 14);
-    onKill(e.group.position.clone(), e.type === 'turret' ? 500 : e.type === 'sine' ? 200 : 100);
+    spawnExplosion(e.group.position.clone(), 14, e.type === 'mine' ? 0xffaa44 : 0xff6600);
+    onKill?.(e.group.position.clone(), e.score);
   }
 }
 
-export type { Enemy };
+export function getEnemyScore(e: Enemy): number { return e.score; }
+
+export type { EnemyType };

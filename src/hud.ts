@@ -6,6 +6,7 @@ const shieldEl = document.getElementById('shield-bar')!;
 const msgEl    = document.getElementById('message')!;
 const bossHudEl = document.getElementById('boss-hud')!;
 const bossHpEl  = document.getElementById('boss-hp-bar')!;
+const combatAlertEl = document.getElementById('combat-alert')!;
 
 export function setScore(n: number): void {
   scoreEl.textContent = String(n);
@@ -42,6 +43,23 @@ export function updateBossHud(current: number, max: number): void {
 export function hideBossHud(): void {
   bossHudEl.hidden = true;
   bossHpEl.style.width = '0%';
+}
+
+let combatAlertPriority = 0;
+
+export function showCombatAlert(text: string, color = '#ff6677', priority = 1): void {
+  if (combatAlertEl.classList.contains('active') && priority < combatAlertPriority) return;
+  combatAlertEl.textContent = text;
+  combatAlertEl.style.color = color;
+  combatAlertPriority = priority;
+  combatAlertEl.classList.add('active');
+}
+
+export function hideCombatAlert(expectedText?: string): void {
+  if (expectedText && combatAlertEl.textContent !== expectedText) return;
+  combatAlertEl.textContent = '';
+  combatAlertPriority = 0;
+  combatAlertEl.classList.remove('active');
 }
 
 // 被弾時の画面シェイク
