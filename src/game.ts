@@ -17,12 +17,13 @@ import { sphereHit } from './collision';
 import {
   setScore, setShield, setStage, showMessage, hideMessage,
   showBossHud, updateBossHud, hideBossHud, updateHUD, triggerShake,
-  clearCombatAlerts,
+  clearCombatAlerts, updateFlightPaceHud,
 } from './hud';
 import { updateObstacles, getObstacles, resetObstacles, setStageTheme, setSceneBackground } from './terrain';
 import { updateItems, getItems, resetItems, ITEM_RADIUS, HEAL_AMOUNT } from './items';
-import { sfxExplosion, sfxHit, sfxWarning, sfxClear, sfxShieldLow, sfxPickup } from './audio';
+import { updateEnginePace, sfxExplosion, sfxHit, sfxWarning, sfxClear, sfxShieldLow, sfxPickup } from './audio';
 import { isTouchActive } from './touch';
+import { flightPace } from './flight-pace';
 
 // タイトル画面の操作説明(キーボード / タッチで切替)
 const TITLE_MSG = () =>
@@ -88,6 +89,14 @@ export class Game {
     // マズルフラッシュ
     this.weapon = createPlayerWeaponController(scene, player.group, { getLockCandidates });
 
+    const resetPaceForPageState = (): void => this.resetFlightPace();
+    addEventListener('blur', resetPaceForPageState);
+    addEventListener('pagehide', resetPaceForPageState);
+    addEventListener('orientationchange', resetPaceForPageState);
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) resetPaceForPageState();
+    });
+
     showMessage(TITLE_MSG());
     setShield(MAX_SHIELD, MAX_SHIELD);
     setScore(0);
@@ -99,6 +108,7 @@ export class Game {
   private setState(next: GameState): void {
     if (this.state === next) return;
     if (next !== 'playing' && next !== 'boss') this.weapon.cancelCharge(true);
+    if (next !== 'playing') this.resetFlightPace();
     this.state = next;
     dispatchEvent(new CustomEvent<GameState>('game:state', { detail: next }));
   }
@@ -114,6 +124,32 @@ export class Game {
   private clearPendingMessageTimers(): void {
     for (const timer of this.pendingMessageTimers) window.clearTimeout(timer);
     this.pendingMessageTimers.clear();
+  }
+
+  private resetFlightPace(): void {
+    flightPace.reset();
+    this.applyFlightPaceFeedback();
+  }
+
+  private applyFlightPaceFeedback(): void {
+    const targetFov = this.state === 'playing' ? flightPace.fov : 70;
+    const fovDelta = targetFov - this.camera.fov;
+    if (Math.abs(fovDelta) > 0.01) {
+      this.camera.fov += fovDelta * 0.18;
+      this.camera.updateProjectionMatrix();
+    }
+    updateFlightPaceHud(flightPace.state, flightPace.multiplier);
+    updateEnginePace(flightPace.multiplier, this.state === 'playing');
+  }
+
+  updateFlightPace(dt: number): void {
+    const enabled = this.state === 'playing';
+    flightPace.update(dt, {
+      boost: enabled && isDown('KeyE'),
+      brake: enabled && isDown('KeyQ'),
+      enabled,
+    });
+    this.applyFlightPaceFeedback();
   }
 
   update(dt: number): void {
@@ -163,7 +199,7 @@ export class Game {
     updateEffects(dt);
 
     if (this.state === 'playing') {
-      this.stageTime += dt;
+      this.stageTime += dt * flightPace.multiplier;
       this.updatePlaying(dt);
     } else if (this.state === 'boss_warning') {
       this.updateBossWarning(dt);
@@ -176,7 +212,7 @@ export class Game {
 
   // ── 通常ステージ ──────────────────────────────────────────────────────────
   private updatePlaying(dt: number): void {
-    updateEnemies(dt, this.stageTime, this.player.group.position);
+    updateEnemies(dt, this.stageTime, this.player.group.position, flightPace.multiplier);
     updateObstacles(dt);
     updateItems(dt);
 
@@ -305,6 +341,7 @@ export class Game {
   private startNextStage(): void {
     this.clearPendingMessageTimers();
     this.currentStage++;
+    this.resetFlightPace();
     this.stageStartScore = this.score;
     setStage(this.currentStage);
     setStageWaves(this.currentStage);
@@ -462,6 +499,7 @@ export class Game {
     this.clearPendingMessageTimers();
     hideBossHud();
     clearCombatAlerts();
+    this.resetFlightPace();
     this.currentStage   = 1;
     this.setState('playing');
     this.score          = 0;
@@ -497,6 +535,7 @@ export class Game {
     this.clearPendingMessageTimers();
     hideBossHud();
     clearCombatAlerts();
+    this.resetFlightPace();
     this.setState('playing');
     this.shield         = MAX_SHIELD;
     this.stageTime      = 0;

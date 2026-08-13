@@ -79,6 +79,7 @@ export interface MovementContext {
   dt: number;
   playerPos: THREE.Vector3;
   speedMult: number;
+  paceMultiplier: number;
   moveSpeed: number;
   flags: Record<string, boolean>;
   chargeTarget?: THREE.Vector3;
@@ -86,7 +87,7 @@ export interface MovementContext {
 
 function advanceToStop(ctx: MovementContext, stopZ: number, speed = ctx.moveSpeed): void {
   if (ctx.group.position.z < stopZ) {
-    ctx.group.position.z += speed * ctx.speedMult * ctx.dt;
+    ctx.group.position.z += speed * ctx.speedMult * ctx.paceMultiplier * ctx.dt;
     if (ctx.group.position.z > stopZ) ctx.group.position.z = stopZ;
   }
 }
@@ -97,12 +98,12 @@ function facePlayer(ctx: MovementContext): void {
 
 export const MOVEMENT_PATTERNS: Record<MovementPatternId, (ctx: MovementContext) => void> = {
   straight: ctx => {
-    ctx.group.position.z += ctx.moveSpeed * ctx.speedMult * ctx.dt;
+    ctx.group.position.z += ctx.moveSpeed * ctx.speedMult * ctx.paceMultiplier * ctx.dt;
     ctx.group.rotation.x = 0.1;
   },
 
   sine: ctx => {
-    ctx.group.position.z += ctx.moveSpeed * ctx.speedMult * ctx.dt;
+    ctx.group.position.z += ctx.moveSpeed * ctx.speedMult * ctx.paceMultiplier * ctx.dt;
     ctx.group.position.x = ctx.baseX + Math.sin(ctx.age * 2.2) * 8;
     ctx.group.rotation.z = Math.cos(ctx.age * 2.2) * 0.18;
   },
@@ -159,7 +160,7 @@ export const MOVEMENT_PATTERNS: Record<MovementPatternId, (ctx: MovementContext)
   },
 
   mine: ctx => {
-    ctx.group.position.z += ctx.moveSpeed * ctx.speedMult * ctx.dt;
+    ctx.group.position.z += ctx.moveSpeed * ctx.speedMult * ctx.paceMultiplier * ctx.dt;
     ctx.group.rotation.x += ctx.dt * 1.6;
     ctx.group.rotation.y += ctx.dt * 1.2;
   },

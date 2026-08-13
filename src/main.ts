@@ -88,6 +88,7 @@ function loop(time: number): void {
 
   // A portrait touch layout is an instruction screen, so pause simulation behind it.
   if (!isTouchLayoutBlocked()) {
+    game.updateFlightPace(dt);
     updateTerrain(dt);
     player.update(dt, camera);
     game.update(dt);

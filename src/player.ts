@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { getMoveInput, isDown } from './input';
 import { createPlayerShip } from './models';
 import { sfxBarrel } from './audio';
+import { flightPace } from './flight-pace';
 
 // ─── 調整パラメータ ───────────────────────────────────────────────────────────
 const SPEED_X       = 18;
@@ -31,6 +32,8 @@ export function createPlayer(scene: THREE.Scene): Player {
   const ship = createPlayerShip();
   ship.scale.setScalar(1.4);
   group.add(ship);
+  const thruster = ship.getObjectByName('player-thruster') as THREE.Mesh;
+  const thrusterMaterial = thruster.material as THREE.MeshBasicMaterial;
   group.position.set(0, 3, 10);
   scene.add(group);
 
@@ -82,6 +85,13 @@ export function createPlayer(scene: THREE.Scene): Player {
 
   function update(dt: number, camera: THREE.Camera): void {
     totalTime += dt;
+
+    const thrusterPulse = 1 + Math.sin(totalTime * 18) * 0.08;
+    const thrusterScale = flightPace.state === 'boost' ? 1.3 : flightPace.state === 'brake' ? 0.82 : 1;
+    thrusterMaterial.color.setHex(
+      flightPace.state === 'boost' ? 0x99eaff : flightPace.state === 'brake' ? 0x336688 : 0x44aaff,
+    );
+    thruster.scale.setScalar(thrusterScale * thrusterPulse);
 
     if (!isRolling && rollCooldownTimer > 0) {
       rollCooldownTimer = Math.max(0, rollCooldownTimer - dt);

@@ -2,6 +2,8 @@
 // → 最初のキー入力時に resume() を呼ぶ
 
 let ctx: AudioContext | null = null;
+let engineOscillator: OscillatorNode | null = null;
+let engineGain: GainNode | null = null;
 
 function getCtx(): AudioContext {
   if (!ctx) ctx = new AudioContext();
@@ -189,4 +191,21 @@ export function sfxPickup(): void {
 // 初回キー入力で AudioContext を起動する
 export function resumeAudio(): void {
   getCtx();
+}
+
+export function updateEnginePace(multiplier: number, active: boolean): void {
+  if (!ctx) return;
+  if (!engineOscillator || !engineGain) {
+    engineOscillator = ctx.createOscillator();
+    engineGain = ctx.createGain();
+    engineOscillator.type = 'sawtooth';
+    engineOscillator.connect(engineGain);
+    engineGain.connect(ctx.destination);
+    engineGain.gain.value = 0;
+    engineOscillator.start();
+  }
+
+  const now = ctx.currentTime;
+  engineOscillator.frequency.setTargetAtTime(72 + multiplier * 24, now, 0.08);
+  engineGain.gain.setTargetAtTime(active ? 0.018 : 0, now, 0.12);
 }

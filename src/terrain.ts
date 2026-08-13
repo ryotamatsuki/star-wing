@@ -1,7 +1,8 @@
 import * as THREE from 'three';
+import { flightPace } from './flight-pace';
 
 const GRID_SIZE   = 20;
-const SCROLL_SPEED = 60;
+const BASE_SCROLL_SPEED = 60;
 const GRID_COUNT  = 20;
 
 // ─── ステージ別テーマ ─────────────────────────────────────────────────────────
@@ -74,7 +75,7 @@ function addMountains(): void {
 
 // ─── スクロール ───────────────────────────────────────────────────────────────
 export function updateTerrain(dt: number): void {
-  scrollOffset += SCROLL_SPEED * dt;
+  scrollOffset += BASE_SCROLL_SPEED * flightPace.multiplier * dt;
   if (scrollOffset >= GRID_SIZE) scrollOffset -= GRID_SIZE;
   ground.position.z = -GRID_SIZE * GRID_COUNT / 2 + 10 + scrollOffset;
 }
@@ -122,7 +123,8 @@ function spawnColumn(baseX: number): void {
 }
 
 export function updateObstacles(dt: number): void {
-  obstacleTimer -= dt;
+  const routeAdvance = flightPace.multiplier * dt;
+  obstacleTimer -= routeAdvance;
   if (obstacleTimer <= 0) {
     if (Math.random() < 0.5) {
       spawnArch((Math.random() - 0.5) * 8);
@@ -135,7 +137,7 @@ export function updateObstacles(dt: number): void {
 
   for (let i = obstacles.length - 1; i >= 0; i--) {
     const obs = obstacles[i];
-    obs.group.position.z += SCROLL_SPEED * dt;
+    obs.group.position.z += BASE_SCROLL_SPEED * flightPace.multiplier * dt;
     if (obs.group.position.z > 30) {
       scene.remove(obs.group);
       obstacles.splice(i, 1);
