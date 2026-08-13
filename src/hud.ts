@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { ChargeStateDetail } from './player-weapons';
 
 const scoreEl  = document.getElementById('score')!;
 const stageEl  = document.getElementById('stage')!;
@@ -7,6 +8,9 @@ const msgEl    = document.getElementById('message')!;
 const bossHudEl = document.getElementById('boss-hud')!;
 const bossHpEl  = document.getElementById('boss-hp-bar')!;
 const combatAlertEl = document.getElementById('combat-alert')!;
+const chargeHudEl = document.getElementById('charge-hud')!;
+const chargeBarEl = document.getElementById('charge-bar')!;
+const chargeLabelEl = document.getElementById('charge-label')!;
 
 export function setScore(n: number): void {
   scoreEl.textContent = String(n);
@@ -45,21 +49,74 @@ export function hideBossHud(): void {
   bossHpEl.style.width = '0%';
 }
 
-let combatAlertPriority = 0;
+export interface CombatAlert {
+  sourceId: string;
+  message: string;
+  priority: number;
+  color: string;
+  active: boolean;
+  sequence: number;
+}
 
-export function showCombatAlert(text: string, color = '#ff6677', priority = 1): void {
-  if (combatAlertEl.classList.contains('active') && priority < combatAlertPriority) return;
-  combatAlertEl.textContent = text;
-  combatAlertEl.style.color = color;
-  combatAlertPriority = priority;
+export function updateChargeHud(detail: ChargeStateDetail): void {
+  const active = detail.state !== 'idle';
+  chargeHudEl.hidden = !active;
+  if (!active) {
+    chargeHudEl.classList.remove('ready', 'full');
+    return;
+  }
+  chargeBarEl.style.width = `${detail.progress * 100}%`;
+  chargeHudEl.classList.toggle('ready', detail.state === 'ready');
+  chargeHudEl.classList.toggle('full', detail.full);
+  chargeLabelEl.textContent = detail.full ? 'FULL CHARGE' : detail.state === 'ready' ? 'READY' : 'CHARGE';
+}
+
+const combatAlerts = new Map<string, CombatAlert>();
+let combatAlertSequence = 0;
+
+function renderCombatAlert(): void {
+  const activeAlerts = [...combatAlerts.values()]
+    .filter(alert => alert.active)
+    .sort((a, b) => b.priority - a.priority || b.sequence - a.sequence);
+  const current = activeAlerts[0];
+  if (!current) {
+    combatAlertEl.textContent = '';
+    combatAlertEl.classList.remove('active');
+    return;
+  }
+
+  combatAlertEl.textContent = current.message;
+  combatAlertEl.style.color = current.color;
   combatAlertEl.classList.add('active');
 }
 
-export function hideCombatAlert(expectedText?: string): void {
-  if (expectedText && combatAlertEl.textContent !== expectedText) return;
-  combatAlertEl.textContent = '';
-  combatAlertPriority = 0;
-  combatAlertEl.classList.remove('active');
+/** Register or refresh one alert source. Higher priority sources win the display. */
+export function showCombatAlert(
+  sourceId: string,
+  message: string,
+  color = '#ff6677',
+  priority = 1,
+): void {
+  combatAlerts.set(sourceId, {
+    sourceId,
+    message,
+    priority,
+    color,
+    active: true,
+    sequence: ++combatAlertSequence,
+  });
+  renderCombatAlert();
+}
+
+/** Remove one source, allowing the next active priority to be shown immediately. */
+export function hideCombatAlert(sourceId: string): void {
+  combatAlerts.delete(sourceId);
+  renderCombatAlert();
+}
+
+export function clearCombatAlerts(): void {
+  combatAlerts.clear();
+  renderCombatAlert();
 }
 
 // 被弾時の画面シェイク

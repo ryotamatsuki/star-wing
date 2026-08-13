@@ -7,7 +7,7 @@ import { initEffects } from './effects';
 import { initItems } from './items';
 import { initTouchControls, isTouchDevice, isTouchLayoutBlocked } from './touch';
 import { Game } from './game';
-import { hideCombatAlert, showCombatAlert } from './hud';
+import { clearCombatAlerts, hideCombatAlert, showCombatAlert, updateChargeHud } from './hud';
 
 // ─── シーン・カメラ・レンダラー ───────────────────────────────────────────────
 const scene = new THREE.Scene();
@@ -44,15 +44,32 @@ initTouchControls();
 
 const game = new Game(player, camera, scene);
 
-let encounterHintToken = 0;
+const encounterHintTimers = new Map<string, number>();
 addEventListener('combat:encounter', e => {
-  const detail = (e as CustomEvent<{ objective?: string }>).detail;
+  const detail = (e as CustomEvent<{ id: string; objective?: string }>).detail;
   if (!detail.objective) return;
-  const token = ++encounterHintToken;
-  showCombatAlert(detail.objective, '#ffe477', 1);
-  window.setTimeout(() => {
-    if (token === encounterHintToken) hideCombatAlert(detail.objective);
+  const sourceId = `encounter:${detail.id}`;
+  const previousTimer = encounterHintTimers.get(sourceId);
+  if (previousTimer !== undefined) window.clearTimeout(previousTimer);
+  showCombatAlert(sourceId, detail.objective, '#ffe477', 1);
+  const timer = window.setTimeout(() => {
+    if (encounterHintTimers.get(sourceId) === timer) encounterHintTimers.delete(sourceId);
+    hideCombatAlert(sourceId);
   }, 2600);
+  encounterHintTimers.set(sourceId, timer);
+});
+
+addEventListener('game:state', e => {
+  const state = (e as CustomEvent<string>).detail;
+  if (state === 'title' || state === 'gameover' || state === 'stage_clear' || state === 'clear') {
+    for (const timer of encounterHintTimers.values()) window.clearTimeout(timer);
+    encounterHintTimers.clear();
+    clearCombatAlerts();
+  }
+});
+
+addEventListener('game:charge-state', e => {
+  updateChargeHud((e as CustomEvent<Parameters<typeof updateChargeHud>[0]>).detail);
 });
 
 // ─── ウィンドウリサイズ ────────────────────────────────────────────────────────

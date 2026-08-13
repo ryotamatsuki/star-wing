@@ -16,6 +16,16 @@ export interface EncounterDefinition {
   completionCondition?: 'clearAll';
 }
 
+export type EncounterStatus = 'scheduled' | 'active' | 'completed';
+
+export interface EncounterState {
+  id: string;
+  status: EncounterStatus;
+  spawned: number;
+  pending: number;
+  live: number;
+}
+
 function encounter(
   id: string,
   startTime: number,

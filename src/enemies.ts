@@ -8,9 +8,16 @@ import {
   EnemyType,
   MOVEMENT_PATTERNS,
 } from './enemy-definitions';
-import { EncounterDefinition, STAGE_ENCOUNTERS } from './encounters';
+import {
+  EncounterDefinition,
+  EncounterState,
+  EncounterStatus,
+  STAGE_ENCOUNTERS,
+} from './encounters';
 
 export interface Enemy {
+  id: string;
+  encounterId: string;
   group: THREE.Group;
   hp: number;
   maxHp: number;
@@ -39,15 +46,63 @@ let onKill: (pos: THREE.Vector3, score: number) => void;
 let speedMult = 1.0;
 let currentEncounters: EncounterDefinition[] = STAGE_ENCOUNTERS[0];
 let encounterIdx = 0;
+let nextEnemyId = 0;
 
 interface SpawnJob {
   at: number;
+  encounterId: string;
   type: EnemyType;
   x: number;
   y: number;
 }
 
 const spawnQueue: SpawnJob[] = [];
+const encounterStates = new Map<string, EncounterState>();
+
+function resetEncounterStates(): void {
+  encounterStates.clear();
+  for (const definition of currentEncounters) {
+    encounterStates.set(definition.id, {
+      id: definition.id,
+      status: 'scheduled',
+      spawned: 0,
+      pending: 0,
+      live: 0,
+    });
+  }
+}
+
+function getEncounterStateMutable(id: string): EncounterState | undefined {
+  return encounterStates.get(id);
+}
+
+function registerSpawn(id: string, pending = false): void {
+  const state = getEncounterStateMutable(id);
+  if (!state) return;
+  if (pending) state.pending += 1;
+  else {
+    state.pending = Math.max(0, state.pending - 1);
+    state.spawned += 1;
+    state.live += 1;
+  }
+}
+
+function removeLiveEnemy(id: string): void {
+  const state = getEncounterStateMutable(id);
+  if (state) state.live = Math.max(0, state.live - 1);
+}
+
+function checkEncounterCompletion(): void {
+  for (const definition of currentEncounters) {
+    const state = encounterStates.get(definition.id);
+    if (!state || state.status !== 'active' || definition.completionCondition !== 'clearAll') continue;
+    if (state.pending !== 0 || state.live !== 0) continue;
+    state.status = 'completed';
+    dispatchEvent(new CustomEvent('combat:encounter-complete', {
+      detail: { id: state.id, status: state.status },
+    }));
+  }
+}
 
 function addRing(group: THREE.Group, radius: number, color: number, opacity = 0.75): THREE.Mesh {
   const ring = new THREE.Mesh(
@@ -130,6 +185,7 @@ export function initEnemies(s: THREE.Scene, killCb: (pos: THREE.Vector3, score: 
 
 export function setStageWaves(stage: number): void {
   currentEncounters = STAGE_ENCOUNTERS[Math.min(stage - 1, STAGE_ENCOUNTERS.length - 1)];
+  resetEncounterStates();
 }
 
 export function setEnemySpeedMult(mult: number): void {
@@ -144,9 +200,11 @@ export function resetEnemies(): void {
   enemies.length = 0;
   spawnQueue.length = 0;
   encounterIdx = 0;
+  nextEnemyId = 0;
+  resetEncounterStates();
 }
 
-function spawnEnemy(type: EnemyType, x: number, y: number): void {
+function spawnEnemy(type: EnemyType, x: number, y: number, encounterId: string): void {
   const definition = ENEMY_DEFINITIONS[type];
   const visual = makeEnemyVisual(definition);
   const group = visual.group;
@@ -155,7 +213,11 @@ function spawnEnemy(type: EnemyType, x: number, y: number): void {
   if (type === 'turret') group.position.y = 0;
 
   scene.add(group);
+  const id = `enemy-${nextEnemyId++}`;
+  registerSpawn(encounterId);
   enemies.push({
+    id,
+    encounterId,
     group,
     hp: definition.hp,
     maxHp: definition.hp,
@@ -167,7 +229,7 @@ function spawnEnemy(type: EnemyType, x: number, y: number): void {
     baseY: y,
     score: definition.score,
     definition,
-    attackController: createAttackController(scene, definition.attacks),
+    attackController: createAttackController(scene, definition.attacks, id),
     weakPoint: visual.weakPoint,
     weakPointRadius: definition.weakPointRadius ?? 0,
     vulnerable: false,
@@ -178,7 +240,7 @@ function spawnEnemy(type: EnemyType, x: number, y: number): void {
   });
 }
 
-function spawnMineField(origin: THREE.Vector3, pattern: number): void {
+function spawnMineField(origin: THREE.Vector3, pattern: number, encounterId: string): void {
   const laneX = [-8, 0, 8];
   const occupied = pattern === 0 ? [0, 1] : pattern === 1 ? [1, 2] : [0, 2];
   const laneY = pattern === 2 ? [4.5, 8.5] : [5.5, 6.5];
@@ -188,7 +250,12 @@ function spawnMineField(origin: THREE.Vector3, pattern: number): void {
     visual.position.set(laneX[lane], laneY[i], origin.z);
     scene.add(visual);
     const definition = ENEMY_DEFINITIONS.mine;
+    const id = `enemy-${nextEnemyId++}`;
+    const state = getEncounterStateMutable(encounterId);
+    if (state) state.live += 1;
     enemies.push({
+      id,
+      encounterId,
       group: visual,
       hp: definition.hp,
       maxHp: definition.hp,
@@ -200,7 +267,7 @@ function spawnMineField(origin: THREE.Vector3, pattern: number): void {
       baseY: laneY[i],
       score: definition.score,
       definition,
-      attackController: createAttackController(scene, []),
+      attackController: createAttackController(scene, [], id),
       weakPointRadius: 0,
       vulnerable: false,
       shielded: false,
@@ -234,29 +301,42 @@ function updateSupport(): void {
 export function updateEnemies(dt: number, stageTime: number, playerPos: THREE.Vector3): void {
   while (encounterIdx < currentEncounters.length && stageTime >= currentEncounters[encounterIdx].startTime) {
     const encounter = currentEncounters[encounterIdx];
+    const state = encounterStates.get(encounter.id);
+    if (state) {
+      state.status = 'active';
+      state.pending = 0;
+    }
     for (const spawn of encounter.enemies) {
       const count = spawn.count ?? 1;
       const gap = spawn.gap ?? 0;
       for (let i = 0; i < count; i++) {
-        spawnQueue.push({ at: encounter.startTime + i * gap, type: spawn.type, x: spawn.x, y: spawn.y });
+        spawnQueue.push({
+          at: encounter.startTime + i * gap,
+          encounterId: encounter.id,
+          type: spawn.type,
+          x: spawn.x,
+          y: spawn.y,
+        });
+        registerSpawn(encounter.id, true);
       }
     }
     dispatchEvent(new CustomEvent('combat:encounter', {
-      detail: { id: encounter.id, objective: encounter.objective ?? '' },
+      detail: { id: encounter.id, objective: encounter.objective ?? '', status: 'active' as EncounterStatus },
     }));
     encounterIdx++;
   }
 
   for (let i = spawnQueue.length - 1; i >= 0; i--) {
     if (stageTime < spawnQueue[i].at) continue;
-    const { type, x, y } = spawnQueue[i];
+    const { encounterId, type, x, y } = spawnQueue[i];
     spawnQueue.splice(i, 1);
-    spawnEnemy(type, x, y);
+    spawnEnemy(type, x, y, encounterId);
   }
 
   for (let i = enemies.length - 1; i >= 0; i--) {
     const e = enemies[i];
     if (!e.alive) {
+      removeLiveEnemy(e.encounterId);
       e.attackController.dispose();
       scene.remove(e.group);
       enemies.splice(i, 1);
@@ -268,13 +348,14 @@ export function updateEnemies(dt: number, stageTime: number, playerPos: THREE.Ve
     e.flags.vulnerable = false;
     const attackContext = {
       scene,
+      alertSourceId: e.id,
       group: e.group,
       age: e.age,
       dt,
       playerPos,
       flags: e.flags,
       chargeTarget: e.chargeTarget,
-      spawnMineField,
+      spawnMineField: (origin: THREE.Vector3, pattern: number) => spawnMineField(origin, pattern, e.encounterId),
     };
     e.attackController.update(attackContext);
     e.chargeTarget = attackContext.chargeTarget;
@@ -301,12 +382,22 @@ export function updateEnemies(dt: number, stageTime: number, playerPos: THREE.Ve
   }
 
   updateSupport();
+  checkEncounterCompletion();
 }
 
 export function getEnemies(): Enemy[] { return enemies; }
 
 export function allWavesCleared(): boolean {
   return encounterIdx >= currentEncounters.length && spawnQueue.length === 0 && enemies.length === 0;
+}
+
+export function getEncounterStates(): EncounterState[] {
+  return currentEncounters.map(definition => ({ ...encounterStates.get(definition.id)! }));
+}
+
+export function getEncounterState(id: string): EncounterState | undefined {
+  const state = encounterStates.get(id);
+  return state ? { ...state } : undefined;
 }
 
 export function damageEnemy(e: Enemy, dmg: number): void {

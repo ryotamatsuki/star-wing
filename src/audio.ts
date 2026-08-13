@@ -114,6 +114,23 @@ export function sfxCharge(): void {
   playTone('sawtooth', 150, 70, 0.3, 0.14);
 }
 
+export function sfxChargeStart(): void {
+  playTone('triangle', 180, 320, 0.16, 0.09);
+}
+
+export function sfxChargeReady(): void {
+  playTone('square', 420, 620, 0.13, 0.11);
+}
+
+export function sfxChargeFull(): void {
+  playTone('sawtooth', 520, 980, 0.22, 0.13);
+}
+
+export function sfxChargeFire(full = false): void {
+  playTone('square', full ? 980 : 680, full ? 180 : 260, full ? 0.22 : 0.14, full ? 0.2 : 0.13);
+  if (full) playNoise(0.12, 0.12);
+}
+
 export function sfxMine(): void {
   playTone('triangle', 260, 180, 0.16, 0.08);
 }
