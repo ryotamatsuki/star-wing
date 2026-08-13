@@ -131,6 +131,16 @@ export function sfxChargeFire(full = false): void {
   if (full) playNoise(0.12, 0.12);
 }
 
+export function sfxLockAcquire(slot: number): void {
+  const start = 520 + Math.min(3, Math.max(0, slot - 1)) * 110;
+  playTone('triangle', start, start + 180, 0.09, 0.08);
+}
+
+export function sfxLockVolley(count: number, full: boolean): void {
+  playTone('square', full ? 880 : 650, full ? 260 : 340, 0.18, 0.15);
+  if (count >= 3) playNoise(0.08, 0.07);
+}
+
 export function sfxMine(): void {
   playTone('triangle', 260, 180, 0.16, 0.08);
 }

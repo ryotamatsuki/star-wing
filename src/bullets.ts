@@ -13,10 +13,12 @@ interface Bullet {
   isPlayer: boolean;
   alive: boolean;
   damage: number;
-  kind: 'normal' | 'charge';
+  kind: 'normal' | 'charge' | 'lock';
   homing: boolean;
   homingStrength: number;
   target?: THREE.Vector3;
+  targetObject?: THREE.Object3D;
+  targetIsValid?: () => boolean;
   evaded: boolean;
 }
 
@@ -27,6 +29,10 @@ const playerGeo = new THREE.BoxGeometry(0.12, 0.12, 2.4);
 const playerMat = new THREE.MeshBasicMaterial({ color: LASER_COLOR_PLAYER });
 const enemyGeo  = new THREE.SphereGeometry(0.3, 5, 4);
 const enemyMat  = new THREE.MeshBasicMaterial({ color: LASER_COLOR_ENEMY });
+const playerHomingGeo = new THREE.SphereGeometry(0.24, 6, 4);
+const playerHomingMat = new THREE.MeshBasicMaterial({ color: 0x66f6ff });
+const playerHomingRingGeo = new THREE.TorusGeometry(0.42, 0.07, 5, 12);
+const playerHomingRingMat = new THREE.MeshBasicMaterial({ color: 0xffe477 });
 
 export interface EnemyBulletOptions {
   damage?: number;
@@ -43,9 +49,20 @@ export interface HomingMissileOptions {
 
 export interface PlayerBulletOptions {
   damage?: number;
-  kind?: 'normal' | 'charge';
+  kind?: 'normal' | 'charge' | 'lock';
   color?: number;
   scale?: number;
+}
+
+export interface PlayerHomingTarget {
+  object: THREE.Object3D;
+  isValid(): boolean;
+}
+
+export interface PlayerHomingShotOptions {
+  damage?: number;
+  speed?: number;
+  homingStrength?: number;
 }
 
 export function initBullets(s: THREE.Scene): void {
@@ -76,6 +93,59 @@ export function fireChargeBullet(origin: THREE.Vector3, fullCharge: boolean, dam
     color: fullCharge ? 0xffe477 : 0xffb347,
     scale: fullCharge ? 2.1 : 1.5,
   });
+}
+
+export function firePlayerHomingShot(
+  origin: THREE.Vector3,
+  target: PlayerHomingTarget,
+  options: PlayerHomingShotOptions = {},
+): void {
+  const targetPosition = target.object.getWorldPosition(new THREE.Vector3());
+  const direction = targetPosition.clone().sub(origin);
+  if (direction.lengthSq() === 0) direction.set(0, 0, -1);
+  direction.normalize();
+
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(playerHomingGeo, playerHomingMat);
+  const ring = new THREE.Mesh(playerHomingRingGeo, playerHomingRingMat);
+  ring.rotation.x = Math.PI / 2;
+  ring.position.z = 0.18;
+  group.add(body, ring);
+  group.position.copy(origin);
+  group.lookAt(origin.clone().add(direction));
+  scene.add(group);
+
+  const speed = options.speed ?? 72;
+  bullets.push({
+    mesh: group,
+    vz: direction.z * speed,
+    vx: direction.x * speed,
+    vy: direction.y * speed,
+    isPlayer: true,
+    alive: true,
+    damage: options.damage ?? 3,
+    kind: 'lock',
+    homing: true,
+    homingStrength: options.homingStrength ?? 1.4,
+    target: targetPosition,
+    targetObject: target.object,
+    targetIsValid: target.isValid,
+    evaded: false,
+  });
+}
+
+export function firePlayerHomingVolley(
+  origin: THREE.Vector3,
+  targets: readonly PlayerHomingTarget[],
+  options: PlayerHomingShotOptions = {},
+): number {
+  let fired = 0;
+  for (const target of targets) {
+    if (!target.isValid()) continue;
+    firePlayerHomingShot(origin, target, options);
+    fired++;
+  }
+  return fired;
 }
 
 export function fireEnemyBullet(origin: THREE.Vector3, target: THREE.Vector3, options: EnemyBulletOptions = {}): void {
@@ -133,7 +203,7 @@ export function updateBullets(dt: number, playerPos?: THREE.Vector3, playerRolli
     const b = bullets[i];
     if (!b.alive) { scene.remove(b.mesh); bullets.splice(i, 1); continue; }
 
-    if (b.homing && playerRolling && !b.evaded) {
+    if (b.homing && !b.isPlayer && playerRolling && !b.evaded) {
       // A barrel roll breaks a missile's lock. It continues as a dumb projectile,
       // but is ignored by the player collision pass once the lock is broken.
       b.homing = false;
@@ -144,6 +214,19 @@ export function updateBullets(dt: number, playerPos?: THREE.Vector3, playerRolli
         ? b.mesh.material as THREE.MeshBasicMaterial
         : (b.mesh.children[0] as THREE.Mesh).material as THREE.MeshBasicMaterial;
       mat.color.setHex(0x55ffaa);
+    }
+
+    if (b.homing && b.targetObject && b.targetIsValid && !b.targetIsValid()) {
+      // A lock target may disappear after release. Keep the projectile's
+      // current velocity and stop homing instead of retargeting another enemy.
+      b.homing = false;
+      b.targetObject = undefined;
+      b.targetIsValid = undefined;
+    }
+
+    if (b.homing && b.targetObject) {
+      b.target ??= new THREE.Vector3();
+      b.targetObject.getWorldPosition(b.target);
     }
 
     if (b.homing && b.target) {

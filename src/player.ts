@@ -73,6 +73,7 @@ export function createPlayer(scene: THREE.Scene): Player {
     rollTimer = BARREL_DURATION;
     rollDir   = dir;
     sfxBarrel();
+    dispatchEvent(new CustomEvent<number>('game:roll-start', { detail: dir }));
     emitRollState('rolling', BARREL_DURATION);
   }
 
