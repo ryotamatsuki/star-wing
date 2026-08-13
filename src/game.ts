@@ -9,13 +9,14 @@ import {
 } from './bullets';
 import {
   updateEnemies, getEnemies, damageEnemy, resetEnemies,
-  allWavesCleared, setStageWaves, setEnemySpeedMult,
+  allWavesCleared, setStageWaves, setEnemySpeedMult, getEnemyScore,
 } from './enemies';
 import { updateEffects, spawnExplosion, clearEffects, spawnScorePopup, spawnTextPopup } from './effects';
 import { sphereHit } from './collision';
 import {
   setScore, setShield, setStage, showMessage, hideMessage,
   showBossHud, updateBossHud, hideBossHud, updateHUD, triggerShake,
+  hideCombatAlert,
 } from './hud';
 import { updateObstacles, getObstacles, resetObstacles, setStageTheme, setSceneBackground } from './terrain';
 import { updateItems, getItems, resetItems, ITEM_RADIUS, HEAL_AMOUNT } from './items';
@@ -174,7 +175,7 @@ export class Game {
       this.shieldLowTimer = 0;
     }
 
-    updateBullets(dt);
+    updateBullets(dt, this.player.group.position, this.player.isRolling);
     updateEffects(dt);
 
     if (this.state === 'playing') {
@@ -296,6 +297,7 @@ export class Game {
   private onBossDead(): void {
     sfxExplosion(true);
     hideBossHud();
+    hideCombatAlert();
     this.clearPendingMessageTimers();
     if (this.currentStage < TOTAL_STAGES) {
       this.setState('stage_clear');
@@ -341,6 +343,7 @@ export class Game {
     this.boss?.reset();
     this.boss = null;
     hideBossHud();
+    hideCombatAlert();
     resetEnemies();
     resetObstacles();
     resetItems();
@@ -359,11 +362,24 @@ export class Game {
     for (const b of pBullets) {
       for (const e of enemies) {
         if (!e.alive) continue;
-        if (sphereHit(b.mesh.position, getPlayerBulletRadius(), e.group.position, e.radius)) {
+
+        const weakPointHit = e.weakPoint && e.vulnerable
+          ? sphereHit(
+            b.mesh.position,
+            getPlayerBulletRadius(),
+            e.weakPoint.getWorldPosition(new THREE.Vector3()),
+            e.weakPointRadius,
+          )
+          : false;
+        const bodyHit = sphereHit(b.mesh.position, getPlayerBulletRadius(), e.group.position, e.radius);
+        if (weakPointHit || bodyHit) {
           killBullet(b);
-          damageEnemy(e, 1);
+          damageEnemy(e, weakPointHit ? 3 : 1);
+          if (weakPointHit && e.alive) {
+            spawnTextPopup(e.group.position.clone(), 'WEAK POINT', '#ffe477');
+          }
           if (!e.alive) {
-            const pts = e.type === 'turret' ? 500 : e.type === 'sine' ? 200 : 100;
+            const pts = getEnemyScore(e);
             this.addScore(pts);
             spawnScorePopup(e.group.position.clone(), pts);
             sfxExplosion(false);
@@ -379,9 +395,10 @@ export class Game {
     if (this.hitFlash > 0 || this.player.isRolling) return;
 
     for (const b of getEnemyBullets()) {
+      if (b.evaded) continue;
       if (sphereHit(b.mesh.position, ENEMY_BULLET_RADIUS, this.player.group.position, getPlayerRadius())) {
         killBullet(b);
-        this.takeDamage(15);
+        this.takeDamage(b.damage);
         return;
       }
     }
@@ -443,6 +460,7 @@ export class Game {
     if (this.shield <= 0) {
       this.clearPendingMessageTimers();
       hideBossHud();
+      hideCombatAlert();
       spawnExplosion(this.player.group.position.clone(), 20, 0xff6600);
       sfxExplosion(true);
       this.setState('gameover');
@@ -459,6 +477,7 @@ export class Game {
   private startGame(): void {
     this.clearPendingMessageTimers();
     hideBossHud();
+    hideCombatAlert();
     this.currentStage   = 1;
     this.setState('playing');
     this.score          = 0;
@@ -495,6 +514,7 @@ export class Game {
   private restartCurrentStage(): void {
     this.clearPendingMessageTimers();
     hideBossHud();
+    hideCombatAlert();
     this.setState('playing');
     this.shield         = MAX_SHIELD;
     this.stageTime      = 0;
