@@ -138,6 +138,28 @@ export function clearCombatAlerts(): void {
 }
 
 // 被弾時の画面シェイク
+const PHASE_2D_LANE_ALERT_ID = 'phase2d-lane';
+
+function laneLabel(lane: string | number): string {
+  const value = String(lane).trim().toUpperCase();
+  return value.startsWith('LANE ') ? value : `LANE ${value}`;
+}
+
+/** Show a short-lived lane threat using the existing priority-arbitrated alert. */
+export function showLaneTelegraphFeedback(lane: string | number, priority = 3): void {
+  showCombatAlert(PHASE_2D_LANE_ALERT_ID, `${laneLabel(lane)} THREAT`, '#ffb347', priority);
+}
+
+/** Show that a lane choice is currently unavailable using the same alert source. */
+export function showLaneDenialFeedback(lane: string | number, priority = 5): void {
+  showCombatAlert(PHASE_2D_LANE_ALERT_ID, `${laneLabel(lane)} DENIED`, '#ff5964', priority);
+}
+
+/** Clear only the Phase 2D lane feedback, preserving unrelated combat alerts. */
+export function hideLaneFeedback(): void {
+  hideCombatAlert(PHASE_2D_LANE_ALERT_ID);
+}
+
 let shakeTimer  = 0;
 let shakeAmount = 0;
 

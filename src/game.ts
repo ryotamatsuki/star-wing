@@ -9,10 +9,14 @@ import {
   killBullet, clearBullets,
 } from './bullets';
 import {
-  updateEnemies, getEnemies, damageEnemy, resetEnemies,
-  allWavesCleared, setStageWaves, setEnemySpeedMult, getEnemyScore, getLockCandidates,
+  updateEnemies, getEnemies, resetEnemies,
+  allWavesCleared, setStageWaves, setEnemySpeedMult, getLockCandidates,
+  resolvePlayerBulletHit, forceDestroyEnemy,
 } from './enemies';
-import { updateEffects, spawnExplosion, clearEffects, spawnScorePopup, spawnTextPopup } from './effects';
+import {
+  updateEffects, spawnExplosion, clearEffects, spawnScorePopup, spawnTextPopup,
+  spawnPartDestroyFeedback, spawnCoreExposeFeedback, spawnCoreHitFeedback,
+} from './effects';
 import { sphereHit } from './collision';
 import {
   setScore, setShield, setStage, showMessage, hideMessage,
@@ -21,7 +25,10 @@ import {
 } from './hud';
 import { updateObstacles, getObstacles, resetObstacles, setStageTheme, setSceneBackground } from './terrain';
 import { updateItems, getItems, resetItems, ITEM_RADIUS, HEAL_AMOUNT } from './items';
-import { updateEnginePace, sfxExplosion, sfxHit, sfxWarning, sfxClear, sfxShieldLow, sfxPickup } from './audio';
+import {
+  updateEnginePace, sfxExplosion, sfxHit, sfxWarning, sfxClear, sfxShieldLow, sfxPickup,
+  sfxPartDestroy, sfxCoreExpose, sfxCoreHit,
+} from './audio';
 import { isTouchActive } from './touch';
 import { flightPace } from './flight-pace';
 
@@ -88,6 +95,59 @@ export class Game {
   ) {
     // マズルフラッシュ
     this.weapon = createPlayerWeaponController(scene, player.group, { getLockCandidates });
+
+    addEventListener('combat:enemy-part-destroyed', event => {
+      const detail = (event as CustomEvent<{
+        score?: number;
+        position?: THREE.Vector3;
+        partId?: string;
+      }>).detail;
+      const position = detail.position instanceof THREE.Vector3
+        ? detail.position
+        : new THREE.Vector3();
+      if ((detail.score ?? 0) > 0) {
+        this.addScore(detail.score!);
+        spawnScorePopup(position, detail.score!);
+      }
+      spawnPartDestroyFeedback(position);
+      sfxPartDestroy();
+    });
+    addEventListener('combat:enemy-core-exposed', event => {
+      const detail = (event as CustomEvent<{ position?: THREE.Vector3 }>).detail;
+      const position = detail.position instanceof THREE.Vector3
+        ? detail.position
+        : new THREE.Vector3();
+      spawnCoreExposeFeedback(position);
+      sfxCoreExpose();
+    });
+    addEventListener('combat:enemy-root-destroyed', event => {
+      const detail = (event as CustomEvent<{
+        reason?: string;
+        score?: number;
+        position?: THREE.Vector3;
+      }>).detail;
+      if (detail.reason === 'force') return;
+      const position = detail.position instanceof THREE.Vector3
+        ? detail.position
+        : new THREE.Vector3();
+      if ((detail.score ?? 0) > 0) {
+        this.addScore(detail.score!);
+        spawnScorePopup(position, detail.score!);
+      }
+      sfxExplosion(false);
+    });
+    addEventListener('combat:enemy-hit', event => {
+      const detail = (event as CustomEvent<{
+        partId?: string;
+        position?: THREE.Vector3;
+      }>).detail;
+      if (detail.partId !== 'core') return;
+      const position = detail.position instanceof THREE.Vector3
+        ? detail.position
+        : new THREE.Vector3();
+      spawnCoreHitFeedback(position);
+      sfxCoreHit();
+    });
 
     const resetPaceForPageState = (): void => this.resetFlightPace();
     addEventListener('blur', resetPaceForPageState);
@@ -223,6 +283,10 @@ export class Game {
 
     if (allWavesCleared()) {
       resetObstacles();
+      // Do not carry lock-on projectiles from the final encounter into the
+      // separate boss collision system. Their targets may have just been
+      // destroyed in the same frame.
+      clearBullets();
       this.setState('boss_warning');
       this.warningTimer = 0;
       showMessage('!! WARNING !!');
@@ -378,35 +442,15 @@ export class Game {
   // ── 共通: 自弾 × 通常敵 ──────────────────────────────────────────────────
   private checkPlayerBulletsVsEnemies(): void {
     const pBullets = getPlayerBullets();
-    const enemies  = getEnemies();
     for (const b of pBullets) {
-      for (const e of enemies) {
-        if (!e.alive) continue;
-
-        const weakPointHit = e.weakPoint && e.vulnerable
-          ? sphereHit(
-            b.mesh.position,
-            getPlayerBulletRadius(b.kind),
-            e.weakPoint.getWorldPosition(new THREE.Vector3()),
-            e.weakPointRadius,
-          )
-          : false;
-        const bodyHit = sphereHit(b.mesh.position, getPlayerBulletRadius(b.kind), e.group.position, e.radius);
-        if (weakPointHit || bodyHit) {
-          killBullet(b);
-          damageEnemy(e, b.damage * (weakPointHit ? 3 : 1));
-          if (weakPointHit && e.alive) {
-            spawnTextPopup(e.group.position.clone(), 'WEAK POINT', '#ffe477');
-          }
-          if (!e.alive) {
-            const pts = getEnemyScore(e);
-            this.addScore(pts);
-            spawnScorePopup(e.group.position.clone(), pts);
-            sfxExplosion(false);
-          }
-          break;
-        }
-      }
+      const target = b.targetHitTarget as Parameters<typeof resolvePlayerBulletHit>[3] | undefined;
+      const result = resolvePlayerBulletHit(
+        b.mesh.position,
+        getPlayerBulletRadius(b.kind),
+        b.damage,
+        target,
+      );
+      if (result?.hit) killBullet(b);
     }
   }
 
@@ -426,7 +470,7 @@ export class Game {
     for (const e of getEnemies()) {
       if (!e.alive) continue;
       if (sphereHit(e.group.position, e.radius, this.player.group.position, getPlayerRadius())) {
-        damageEnemy(e, 999);
+        forceDestroyEnemy(e);
         this.takeDamage(30);
         return;
       }

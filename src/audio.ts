@@ -108,6 +108,28 @@ export function sfxTelegraph(): void {
   playTone('square', 620, 280, 0.18, 0.08);
 }
 
+// Semantic Phase 2D presentation API. These compose the existing SFX so callers
+// do not need to know which sound best represents a combat event.
+export function sfxPartDestroy(): void {
+  sfxExplosion(false);
+}
+
+export function sfxCoreExpose(): void {
+  sfxChargeReady();
+}
+
+export function sfxCoreHit(): void {
+  sfxHit();
+}
+
+export function sfxLaneTelegraph(): void {
+  sfxTelegraph();
+}
+
+export function sfxLaneDenied(): void {
+  sfxWarning();
+}
+
 export function sfxLock(): void {
   playTone('square', 440, 880, 0.16, 0.1);
 }

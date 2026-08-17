@@ -10,7 +10,8 @@ export type EnemyType =
   | 'missileCarrier'
   | 'mineLayer'
   | 'armoredFighter'
-  | 'mine';
+  | 'mine'
+  | 'heavyGunship';
 
 export type MovementPatternId =
   | 'straight'
@@ -22,7 +23,8 @@ export type MovementPatternId =
   | 'carrier'
   | 'mineLayer'
   | 'armored'
-  | 'mine';
+  | 'mine'
+  | 'heavy';
 
 export type AttackPatternId =
   | 'aimedShot'
@@ -57,6 +59,27 @@ export interface SupportSpec {
   damageMultiplier: number;
 }
 
+export type EnemyPartId = 'hull' | 'leftCannon' | 'rightCannon' | 'engine' | 'core';
+
+/**
+ * Authoring-layer part config. Heavy Gunship adapts this into the generic
+ * runtime `EnemyPartDefinition` in `enemy-parts.ts`; keeping authoring data
+ * here avoids putting Three.js nodes into static enemy definitions.
+ */
+export interface EnemyPartConfig {
+  id: EnemyPartId;
+  nodeName: string;
+  hp: number;
+  maxHp: number;
+  score: number;
+  damageMultiplier?: number;
+  damageReduction?: number;
+  initiallyHidden?: boolean;
+  initiallyVisible?: boolean;
+  armored?: boolean;
+  gatedBy?: EnemyPartId;
+}
+
 export interface EnemyDefinition {
   type: EnemyType;
   hp: number;
@@ -69,6 +92,7 @@ export interface EnemyDefinition {
   attacks: AttackSpec[];
   support?: SupportSpec;
   weakPointRadius?: number;
+  parts?: readonly EnemyPartConfig[];
 }
 
 export interface MovementContext {
@@ -159,6 +183,39 @@ export const MOVEMENT_PATTERNS: Record<MovementPatternId, (ctx: MovementContext)
     facePlayer(ctx);
   },
 
+  heavy: ctx => {
+    const approachStop = -76;
+    const wasApproaching = ctx.group.position.z < approachStop;
+    advanceToStop(ctx, approachStop, ctx.moveSpeed);
+    if (wasApproaching) {
+      ctx.group.rotation.x = 0.04;
+      return;
+    }
+
+    // After the approach, pace still changes the gunship's combat depth and
+    // lateral aiming window. The drift is deliberately small and bounded so
+    // Boost/Brake are visible without turning the gunship into a fast-moving
+    // ordinary enemy. `age` remains real-time for the sweep itself.
+    const paceDelta = ctx.paceMultiplier - 1;
+    const combatDepthDrift = ctx.moveSpeed * ctx.speedMult * paceDelta * 0.22 * ctx.dt;
+    ctx.group.position.z = THREE.MathUtils.clamp(
+      ctx.group.position.z + combatDepthDrift,
+      approachStop - 3.2,
+      approachStop + 3.8,
+    );
+
+    const engineDestroyed = Boolean(ctx.flags.engineDestroyed);
+    const coreExposed = Boolean(ctx.flags.coreExposed);
+    const sweepRate = engineDestroyed ? 0.38 : 0.62;
+    const sweepWidth = (engineDestroyed ? 3.4 : 6.2) * (1 + paceDelta * 0.18);
+    const sweepHeight = coreExposed ? 1.35 : 0.85;
+    const paceAimBias = paceDelta * 2.2;
+    ctx.group.position.x = ctx.baseX + paceAimBias + Math.sin(ctx.age * sweepRate) * sweepWidth;
+    ctx.group.position.y = ctx.baseY + Math.sin(ctx.age * 0.45) * sweepHeight;
+    ctx.group.rotation.z = Math.cos(ctx.age * sweepRate) * (engineDestroyed ? 0.08 : 0.14);
+    facePlayer(ctx);
+  },
+
   mine: ctx => {
     ctx.group.position.z += ctx.moveSpeed * ctx.speedMult * ctx.paceMultiplier * ctx.dt;
     ctx.group.rotation.x += ctx.dt * 1.6;
@@ -217,6 +274,24 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
   mine: {
     type: 'mine', hp: 1, radius: 2.1, score: 150, color: 0xff4a3d, scale: 1,
     movement: 'mine', moveSpeed: 60, attacks: [],
+  },
+  heavyGunship: {
+    type: 'heavyGunship', hp: 36, radius: 7, score: 1200, color: 0x46586a, scale: 1,
+    movement: 'heavy', moveSpeed: 14, attacks: [],
+    parts: [
+      {
+        id: 'hull', nodeName: 'hull', hp: 36, maxHp: 36, score: 100,
+        damageMultiplier: 0.2, damageReduction: 0.8, armored: true,
+      },
+      { id: 'leftCannon', nodeName: 'left-cannon', hp: 12, maxHp: 12, score: 150 },
+      { id: 'rightCannon', nodeName: 'right-cannon', hp: 12, maxHp: 12, score: 150 },
+      { id: 'engine', nodeName: 'engine', hp: 16, maxHp: 16, score: 200 },
+      {
+        id: 'core', nodeName: 'core', hp: 40, maxHp: 40, score: 0,
+        damageMultiplier: 3,
+        initiallyHidden: true, initiallyVisible: false, armored: true, gatedBy: 'engine',
+      },
+    ],
   },
 };
 

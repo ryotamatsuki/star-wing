@@ -134,7 +134,7 @@ export function createPlayerWeaponController(
   }
 
   function beginCharge(): void {
-    targeting.clear();
+    targeting.clear(playerGroup.position);
     state = 'charging';
     chargeTime = 0;
     effectTime = 0;

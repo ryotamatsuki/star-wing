@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { EnemyHitTargetCompatible, TargetMetadata } from './targeting';
 
 const PLAYER_BULLET_SPEED = 100;
 const ENEMY_BULLET_SPEED  = 60;
@@ -19,6 +20,13 @@ interface Bullet {
   target?: THREE.Vector3;
   targetObject?: THREE.Object3D;
   targetIsValid?: () => boolean;
+  targetId?: string;
+  targetEnemyId?: string;
+  targetPartId?: string;
+  targetKind?: string;
+  targetDisplayName?: string;
+  targetMetadata?: TargetMetadata;
+  targetHitTarget?: EnemyHitTargetCompatible;
   evaded: boolean;
 }
 
@@ -55,14 +63,67 @@ export interface PlayerBulletOptions {
 }
 
 export interface PlayerHomingTarget {
+  id?: string;
   object: THREE.Object3D;
   isValid(): boolean;
+  lockable?: boolean;
+  canAcquire?: () => boolean;
+  canLock?: () => boolean;
+  enemyId?: string;
+  partId?: string;
+  kind?: string;
+  displayName?: string;
+  targetId?: string;
+  target?: EnemyHitTargetCompatible;
 }
 
 export interface PlayerHomingShotOptions {
   damage?: number;
   speed?: number;
   homingStrength?: number;
+}
+
+function targetObject(target: PlayerHomingTarget): THREE.Object3D {
+  return target.target?.object ?? target.object;
+}
+
+function metadataString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+function targetMetadata(target: PlayerHomingTarget): TargetMetadata | undefined {
+  const nested = target.target;
+  const nestedMetadata = nested?.metadata;
+  const metadata: TargetMetadata = {
+    targetId: target.targetId ?? nested?.targetId ?? nested?.id ?? metadataString(nestedMetadata?.targetId),
+    enemyId: target.enemyId ?? nested?.enemyId ?? metadataString(nestedMetadata?.enemyId),
+    partId: target.partId ?? nested?.partId ?? metadataString(nestedMetadata?.partId),
+    kind: target.kind ?? nested?.kind ?? metadataString(nestedMetadata?.kind),
+    displayName: target.displayName ?? nested?.displayName ?? metadataString(nestedMetadata?.displayName),
+  };
+  return Object.values(metadata).some(value => value !== undefined) ? metadata : undefined;
+}
+
+function targetIsAcquirable(target: PlayerHomingTarget): boolean {
+  if (!target.isValid() || target.lockable === false) return false;
+  if (target.canAcquire && !target.canAcquire()) return false;
+  if (target.canLock && !target.canLock()) return false;
+  const nested = target.target;
+  if (!nested) return true;
+  if (nested.lockable === false) return false;
+  if (nested.isValid && !nested.isValid()) return false;
+  if (nested.canAcquire && !nested.canAcquire()) return false;
+  return !nested.canLock || nested.canLock();
+}
+
+function targetRemainsValid(target: PlayerHomingTarget): boolean {
+  if (!target.isValid() || target.lockable === false) return false;
+  if (target.canLock && !target.canLock()) return false;
+  const nested = target.target;
+  if (!nested) return true;
+  if (nested.lockable === false) return false;
+  if (nested.isValid && !nested.isValid()) return false;
+  return !nested.canLock || nested.canLock();
 }
 
 export function initBullets(s: THREE.Scene): void {
@@ -100,7 +161,8 @@ export function firePlayerHomingShot(
   target: PlayerHomingTarget,
   options: PlayerHomingShotOptions = {},
 ): void {
-  const targetPosition = target.object.getWorldPosition(new THREE.Vector3());
+  const homingObject = targetObject(target);
+  const targetPosition = homingObject.getWorldPosition(new THREE.Vector3());
   const direction = targetPosition.clone().sub(origin);
   if (direction.lengthSq() === 0) direction.set(0, 0, -1);
   direction.normalize();
@@ -116,6 +178,7 @@ export function firePlayerHomingShot(
   scene.add(group);
 
   const speed = options.speed ?? 72;
+  const metadata = targetMetadata(target);
   bullets.push({
     mesh: group,
     vz: direction.z * speed,
@@ -128,8 +191,15 @@ export function firePlayerHomingShot(
     homing: true,
     homingStrength: options.homingStrength ?? 1.4,
     target: targetPosition,
-    targetObject: target.object,
-    targetIsValid: target.isValid,
+    targetObject: homingObject,
+    targetIsValid: () => targetRemainsValid(target),
+    targetId: metadata?.targetId,
+    targetEnemyId: metadata?.enemyId,
+    targetPartId: metadata?.partId,
+    targetKind: metadata?.kind,
+    targetDisplayName: metadata?.displayName,
+    targetMetadata: metadata,
+    targetHitTarget: target.target,
     evaded: false,
   });
 }
@@ -141,7 +211,7 @@ export function firePlayerHomingVolley(
 ): number {
   let fired = 0;
   for (const target of targets) {
-    if (!target.isValid()) continue;
+    if (!targetIsAcquirable(target)) continue;
     firePlayerHomingShot(origin, target, options);
     fired++;
   }
@@ -216,7 +286,7 @@ export function updateBullets(dt: number, playerPos?: THREE.Vector3, playerRolli
       mat.color.setHex(0x55ffaa);
     }
 
-    if (b.homing && b.targetObject && b.targetIsValid && !b.targetIsValid()) {
+    if (b.homing && b.targetIsValid && !b.targetIsValid()) {
       // A lock target may disappear after release. Keep the projectile's
       // current velocity and stop homing instead of retargeting another enemy.
       b.homing = false;
