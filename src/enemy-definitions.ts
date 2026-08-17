@@ -74,6 +74,7 @@ export interface EnemyPartConfig {
   score: number;
   damageMultiplier?: number;
   damageReduction?: number;
+  destroyable?: boolean;
   initiallyHidden?: boolean;
   initiallyVisible?: boolean;
   armored?: boolean;
@@ -192,25 +193,14 @@ export const MOVEMENT_PATTERNS: Record<MovementPatternId, (ctx: MovementContext)
       return;
     }
 
-    // After the approach, pace still changes the gunship's combat depth and
-    // lateral aiming window. The drift is deliberately small and bounded so
-    // Boost/Brake are visible without turning the gunship into a fast-moving
-    // ordinary enemy. `age` remains real-time for the sweep itself.
-    const paceDelta = ctx.paceMultiplier - 1;
-    const combatDepthDrift = ctx.moveSpeed * ctx.speedMult * paceDelta * 0.22 * ctx.dt;
-    ctx.group.position.z = THREE.MathUtils.clamp(
-      ctx.group.position.z + combatDepthDrift,
-      approachStop - 3.2,
-      approachStop + 3.8,
-    );
-
+    // After reaching the stop, Heavy combat movement is real-time. Cruise,
+    // Brake, and Boost only affect approach/route exposure.
     const engineDestroyed = Boolean(ctx.flags.engineDestroyed);
     const coreExposed = Boolean(ctx.flags.coreExposed);
     const sweepRate = engineDestroyed ? 0.38 : 0.62;
-    const sweepWidth = (engineDestroyed ? 3.4 : 6.2) * (1 + paceDelta * 0.18);
+    const sweepWidth = engineDestroyed ? 3.4 : 6.2;
     const sweepHeight = coreExposed ? 1.35 : 0.85;
-    const paceAimBias = paceDelta * 2.2;
-    ctx.group.position.x = ctx.baseX + paceAimBias + Math.sin(ctx.age * sweepRate) * sweepWidth;
+    ctx.group.position.x = ctx.baseX + Math.sin(ctx.age * sweepRate) * sweepWidth;
     ctx.group.position.y = ctx.baseY + Math.sin(ctx.age * 0.45) * sweepHeight;
     ctx.group.rotation.z = Math.cos(ctx.age * sweepRate) * (engineDestroyed ? 0.08 : 0.14);
     facePlayer(ctx);
@@ -280,8 +270,8 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     movement: 'heavy', moveSpeed: 14, attacks: [],
     parts: [
       {
-        id: 'hull', nodeName: 'hull', hp: 36, maxHp: 36, score: 100,
-        damageMultiplier: 0.2, damageReduction: 0.8, armored: true,
+        id: 'hull', nodeName: 'hull', hp: 36, maxHp: 36, score: 0,
+        damageMultiplier: 0.2, damageReduction: 0.8, destroyable: false, armored: true,
       },
       { id: 'leftCannon', nodeName: 'left-cannon', hp: 12, maxHp: 12, score: 150 },
       { id: 'rightCannon', nodeName: 'right-cannon', hp: 12, maxHp: 12, score: 150 },
@@ -289,7 +279,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
       {
         id: 'core', nodeName: 'core', hp: 40, maxHp: 40, score: 0,
         damageMultiplier: 3,
-        initiallyHidden: true, initiallyVisible: false, armored: true, gatedBy: 'engine',
+        initiallyHidden: true, initiallyVisible: false, armored: true,
       },
     ],
   },

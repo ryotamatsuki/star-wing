@@ -139,12 +139,20 @@ export class Game {
     addEventListener('combat:enemy-hit', event => {
       const detail = (event as CustomEvent<{
         partId?: string;
+        weakPoint?: boolean;
         position?: THREE.Vector3;
       }>).detail;
-      if (detail.partId !== 'core') return;
       const position = detail.position instanceof THREE.Vector3
         ? detail.position
         : new THREE.Vector3();
+
+      if (detail.weakPoint === true) {
+        spawnTextPopup(position, 'WEAK POINT', '#ffe477');
+        sfxHit();
+        return;
+      }
+
+      if (detail.partId !== 'core') return;
       spawnCoreHitFeedback(position);
       sfxCoreHit();
     });

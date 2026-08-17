@@ -44,6 +44,9 @@ export interface EnemyPartDefinition {
   canHit?: EnemyPartRule;
   canLock?: EnemyPartRule;
 
+  /** Whether damage may transition this part to destroyed. */
+  destroyable?: boolean;
+
   /** Destruction visuals. Hiding is enabled by default; detaching is opt-in. */
   hideOnDestroy?: boolean;
   detachOnDestroy?: boolean;
@@ -367,7 +370,9 @@ export function resolveEnemyPartDamage(
 
   const multiplier = part.damageMultiplier;
   const appliedDamage = damage * multiplier;
-  const wasDestroyed = part.hp > 0 && appliedDamage >= part.hp;
+  const wasDestroyed = part.definition.destroyable !== false
+    && part.hp > 0
+    && appliedDamage >= part.hp;
   part.hp = Math.max(0, part.hp - appliedDamage);
   part.damageTaken += appliedDamage;
   if (wasDestroyed) markEnemyPartDestroyed(part);

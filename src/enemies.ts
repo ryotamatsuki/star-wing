@@ -570,6 +570,12 @@ function resolvePartHit(e: Enemy, part: EnemyPartState, damage: number): PlayerB
       position,
     });
   }
+  if (result.accepted && e.heavyRuntime && part.id === 'hull') {
+    // Hull is a non-destroyable armor target; route effective damage to
+    // the root so baseline fire can eventually finish the encounter.
+    e.hp = Math.max(0, e.hp - result.appliedDamage);
+    if (e.hp <= 0) rootDeath(e);
+  }
   if (result.wasDestroyed) {
     const score = partScore(part);
     emitEnemyEvent('combat:enemy-part-destroyed', {

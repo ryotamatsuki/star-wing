@@ -114,7 +114,7 @@ export const STAGE_ENCOUNTERS: EncounterDefinition[][] = [
       { type: 'heavyGunship', x: 0, y: 7, count: 1 },
       { type: 'kamikaze', x: -7, y: 5, count: 2, gap: 0.5 },
       { type: 'kamikaze', x: 7, y: 5, count: 2, gap: 0.5 },
-    ], 'Prioritize the closest threat, then break the next lock.'),
+    ], 'BREAK SYSTEMS -> EXPOSE CORE'),
   ],
   [
     encounter('s5-opening', 1, [fighterPair('straight', -5, 6, 4, 0.2), fighterPair('straight', 5, 6, 4, 0.2)]),

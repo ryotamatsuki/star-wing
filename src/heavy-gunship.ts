@@ -17,7 +17,6 @@ import {
 import { hideCombatAlert, showCombatAlert } from './hud';
 import { sfxLaneDenied, sfxLaneTelegraph, sfxLock, sfxTelegraph } from './audio';
 import { fireEnemyBullet } from './bullets';
-import { flightPace } from './flight-pace';
 
 export type HeavyGunshipPartId = 'hull' | 'leftCannon' | 'rightCannon' | 'engine' | 'core';
 
@@ -58,7 +57,7 @@ const HEAVY_ATTACKS: Readonly<HeavyGunshipAttackIds> = {
 };
 
 const FALLBACK_PARTS: readonly DefinedPart[] = [
-  { id: 'hull', nodeName: 'hull', hp: 36, maxHp: 36, score: 100, damageMultiplier: 0.2, armored: true },
+  { id: 'hull', nodeName: 'hull', hp: 36, maxHp: 36, score: 0, damageMultiplier: 0.2, destroyable: false, armored: true },
   { id: 'leftCannon', nodeName: 'left-cannon', hp: 12, maxHp: 12, score: 150 },
   { id: 'rightCannon', nodeName: 'right-cannon', hp: 12, maxHp: 12, score: 150 },
   { id: 'engine', nodeName: 'engine', hp: 16, maxHp: 16, score: 200 },
@@ -86,8 +85,10 @@ function partRadius(partId: HeavyGunshipPartId): number {
   switch (partId) {
     case 'hull': return 5.8;
     case 'leftCannon':
-    case 'rightCannon': return 2.2;
-    case 'engine': return 2.4;
+    case 'rightCannon': return 2.8;
+    // The anchor is centered between the two engine pods. Include the pod
+    // housings in the single subsystem's collision/lock envelope.
+    case 'engine': return 3.8;
     case 'core': return 1.9;
   }
 }
@@ -111,7 +112,8 @@ function definedPart(definition: DefinedPart | undefined, model: HeavyGunshipMod
     damageMultiplier,
     canHit: part => id !== 'core' || (part.enabled && part.hidden === false),
     canLock: part => id !== 'core' || (part.enabled && part.hidden === false),
-    hideOnDestroy: true,
+    destroyable: id !== 'hull',
+    hideOnDestroy: id !== 'hull',
     metadata: {
       sourceId: source.id,
       score: source.score,
@@ -154,6 +156,7 @@ function createHeavyPartCandidates(
 function exposeCore(
   flags: Record<string, boolean>,
   parts: ReadonlyMap<string, EnemyPartState>,
+  model: HeavyGunshipModel,
 ): boolean {
   if (flags.coreExposed) return false;
   const engineDestroyed = Boolean(parts.get('engine')?.destroyed);
@@ -161,16 +164,19 @@ function exposeCore(
     .filter(id => parts.get(id)?.destroyed).length;
   const destroyedRequiredParts = Number(engineDestroyed) + cannonDestroyedCount;
 
-  // Deliberate route gate: the core requires the engine plus either cannon.
-  // Both cannons first shut down both barrages safely, but do not expose the
-  // core until the player accepts the engine risk. Engine + one cannon opens
-  // the faster route while leaving the other cannon active.
-  if (!engineDestroyed || cannonDestroyedCount < 1) return false;
+  // Any two of the three primary systems expose the core.
+  // Cannon-first and engine-plus-cannon routes remain meaningfully different.
+  // The remaining system stays active, preserving the risk trade-off.
+  //
+  if (destroyedRequiredParts < 2) return false;
 
   const core = parts.get('core');
   if (!core || core.destroyed) return false;
   flags.coreExposed = true;
   showEnemyPart(core);
+  // Keep the generic Part lifecycle as the source of visibility/target state,
+  // then open the prebuilt model armor around that same Core Group.
+  model.setCoreExposed(true);
   emitEvent('combat:enemy-core-exposed', {
     enemyId: core.enemyId,
     partId: core.partId,
@@ -188,7 +194,7 @@ export function updateHeavyGunshipPartState(runtime: HeavyGunshipRuntime, part: 
   if (cannonDestroyed) runtime.flags[`${part.id}Destroyed`] = true;
   if (engineDestroyed) runtime.flags.engineDestroyed = true;
 
-  const exposedNow = exposeCore(runtime.flags, runtime.partById);
+  const exposedNow = exposeCore(runtime.flags, runtime.partById, runtime.model);
 
   return {
     part,
@@ -267,6 +273,7 @@ export function createHeavyGunshipRuntime(
   runtime.dispose = (): void => {
     runtime.attackController.dispose();
     invalidateHeavyGunshipTargets(runtime);
+    disposeObjectResources(runtime.model.group);
   };
 
   // A core becomes exposed only through the three-part gate, never by a model
@@ -289,28 +296,53 @@ function aimLine(line: THREE.Mesh, from: THREE.Vector3, to: THREE.Vector3): void
   line.lookAt(to);
 }
 
-function removeVisual(scene: THREE.Scene, visual: THREE.Object3D | undefined): void {
-  if (visual) scene.remove(visual);
+function disposeObjectResources(root: THREE.Object3D): void {
+  const geometries = new Set<THREE.BufferGeometry>();
+  const materials = new Set<THREE.Material>();
+  root.traverse(child => {
+    const mesh = child as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    geometries.add(mesh.geometry);
+    if (Array.isArray(mesh.material)) {
+      for (const material of mesh.material) materials.add(material);
+    } else {
+      materials.add(mesh.material);
+    }
+  });
+  for (const geometry of geometries) geometry.dispose();
+  for (const material of materials) material.dispose();
 }
 
-function livePaceMultiplier(): number {
-  return Number.isFinite(flightPace.multiplier) ? flightPace.multiplier : 1;
+function removeVisual(scene: THREE.Scene, visual: THREE.Object3D | undefined): void {
+  if (!visual) return;
+  scene.remove(visual);
+
+  // makeLine/createLaneVisual allocate these resources per telegraph, so the
+  // attack controller owns and disposes them when the visual leaves the scene.
+  // Do not dispose Heavy Gunship model resources here; they are not children
+  // of an attack telegraph visual and may be reused by the runtime.
+  visual.traverse(child => {
+    if (!(child as THREE.Mesh).isMesh) return;
+    const mesh = child as THREE.Mesh;
+    mesh.geometry.dispose();
+    if (Array.isArray(mesh.material)) {
+      for (const material of mesh.material) material.dispose();
+    } else {
+      mesh.material.dispose();
+    }
+  });
 }
 
 /**
- * Flight Pace changes the warning/aiming window, never the attack clock.
+ * Combat clocks are always real-time; World Pace only controls route approach.
  * Cooldowns below are always decremented by ctx.dt, preserving real time.
  */
 function telegraphDuration(base: number, coreExposed: boolean): number {
-  const pace = livePaceMultiplier();
-  const paceScale = THREE.MathUtils.clamp(1 - (pace - 1) * 0.16, 0.9, 1.08);
-  return base * paceScale * (coreExposed ? 0.9 : 1);
+  return base * (coreExposed ? 0.9 : 1);
 }
 
 function lockFraction(base: number, coreExposed: boolean): number {
-  const pace = livePaceMultiplier();
-  const paceOffset = (pace - 1) * 0.28;
-  return THREE.MathUtils.clamp(base - paceOffset + (coreExposed ? -0.04 : 0), 0.45, 0.78);
+  return THREE.MathUtils.clamp(base + (coreExposed ? -0.04 : 0), 0.45, 0.78);
 }
 
 function combatInterval(base: number, coreExposed: boolean): number {
@@ -536,8 +568,8 @@ export function createHeavyGunshipAttackController(
 
   return {
     update(ctx: AttackContext): void {
-      const leftOrigin = model.nodes.leftCannon.getWorldPosition(new THREE.Vector3());
-      const rightOrigin = model.nodes.rightCannon.getWorldPosition(new THREE.Vector3());
+      const leftOrigin = model.nodes.leftMuzzle.getWorldPosition(new THREE.Vector3());
+      const rightOrigin = model.nodes.rightMuzzle.getWorldPosition(new THREE.Vector3());
       updateCannon(ctx, left, 'leftCannon', leftOrigin, HEAVY_ATTACKS.leftCannon, 3.2);
       updateCannon(ctx, right, 'rightCannon', rightOrigin, HEAVY_ATTACKS.rightCannon, 3.65);
       updateLaneDenial(ctx, lane, HEAVY_ATTACKS.laneDenial, 5.4);
@@ -560,6 +592,7 @@ export function createHeavyGunshipAttackController(
 export function markHeavyGunshipPartDestroyed(runtime: HeavyGunshipRuntime, partId: string): HeavyGunshipPartTransition | undefined {
   const part = runtime.getPart(partId);
   if (!part) return undefined;
+  if (part.definition.destroyable === false) return updateHeavyGunshipPartState(runtime, part);
   markEnemyPartDestroyed(part);
   return updateHeavyGunshipPartState(runtime, part);
 }

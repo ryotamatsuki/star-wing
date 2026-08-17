@@ -59,12 +59,8 @@ export const TARGETING_CONFIG = {
 
 export interface TargetingController {
   update(dt: number, playerPos: THREE.Vector3, candidates: readonly LockCandidate[], maxLocks: number): void;
-  /**
-   * Clear the current lock set. Passing the charge-start position begins a
-   * disarmed scan session immediately. A legacy clear() call remains valid
-   * and captures the scan baseline on the next update.
-   */
-  clear(chargeStartPlayerPos?: THREE.Vector3): void;
+  /** Clear the current lock set and arm the next eligible first acquisition. */
+  clear(): void;
   getLockedTargets(): readonly LockedTarget[];
   readonly lockCount: number;
 }
@@ -180,12 +176,9 @@ export function createTargetingController(
   const locked: LockedTarget[] = [];
   const targetPosition = new THREE.Vector3();
   const lastAcquirePlayerPosition = new THREE.Vector3();
-  const chargeStartPlayerPosition = new THREE.Vector3();
   let elapsed = 0;
   let nextAcquireAt = 0;
   let acquisitionArmed = true;
-  let hasChargeStartPosition = false;
-  let chargeStartPositionPending = false;
 
   function updateMarkers(dt: number): void {
     for (let i = 0; i < markers.length; i++) {
@@ -238,27 +231,6 @@ export function createTargetingController(
     elapsed += dt;
     pruneInvalidLocks();
 
-    // A lock scan must be deliberately swept during this charge. Only
-    // lateral/vertical movement counts; the player's forward Z coordinate is
-    // not part of the scan gesture.
-    if (chargeStartPositionPending) {
-      chargeStartPlayerPosition.copy(playerPos);
-      chargeStartPositionPending = false;
-      hasChargeStartPosition = true;
-    }
-    if (hasChargeStartPosition && !acquisitionArmed) {
-      const movedSinceChargeStart = Math.hypot(
-        playerPos.x - chargeStartPlayerPosition.x,
-        playerPos.y - chargeStartPlayerPosition.y,
-      ) >= TARGETING_CONFIG.rearmMoveDistance;
-      if (movedSinceChargeStart) {
-        acquisitionArmed = true;
-        // From this point onward the normal between-lock scan gesture is
-        // measured from the most recently acquired target.
-        hasChargeStartPosition = false;
-      }
-    }
-
     if (maxLocks <= 0) {
       reticle.visible = false;
       updateMarkers(dt);
@@ -294,18 +266,12 @@ export function createTargetingController(
     updateMarkers(dt);
   }
 
-  function clear(chargeStartPlayerPos?: THREE.Vector3): void {
+  function clear(): void {
     locked.length = 0;
     nextAcquireAt = elapsed;
-    acquisitionArmed = false;
-    if (chargeStartPlayerPos) {
-      chargeStartPlayerPosition.copy(chargeStartPlayerPos);
-      hasChargeStartPosition = true;
-      chargeStartPositionPending = false;
-    } else {
-      hasChargeStartPosition = false;
-      chargeStartPositionPending = true;
-    }
+    // The first eligible target is free once READY. Each later lock must be
+    // re-armed by the configured lateral/vertical scan distance.
+    acquisitionArmed = true;
     reticle.visible = false;
     for (const marker of markers) {
       marker.target = undefined;
