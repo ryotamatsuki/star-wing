@@ -27,6 +27,8 @@ interface RollStateDetail {
 let touchActive = false;
 export const isTouchActive = (): boolean => touchActive;
 
+const CHARGE_SCAN_HINT = 'Move while charging to scan for additional locks.';
+
 export function isTouchDevice(): boolean {
   if (location.search.includes('touch')) return true;
   return matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0;
@@ -250,6 +252,13 @@ export function initTouchControls(): void {
     registerButtonReset,
   );
 
+  charge.setAttribute('aria-describedby', 'touch-charge-hint');
+  charge.setAttribute('aria-label', 'Charge. ' + CHARGE_SCAN_HINT);
+  const chargeHint = document.createElement('span');
+  chargeHint.id = 'touch-charge-hint';
+  chargeHint.className = 'touch-sr-only';
+  chargeHint.textContent = CHARGE_SCAN_HINT;
+
   const boost = makeButton(
     'touch-pace touch-boost',
     'BOOST',
@@ -332,7 +341,7 @@ export function initTouchControls(): void {
     registerButtonReset,
   );
 
-  root.append(safeAreaProbe, moveZone, stick, fire, charge, boost, brake, autoFireButton, roll, view);
+  root.append(safeAreaProbe, moveZone, stick, fire, charge, boost, brake, autoFireButton, roll, view, chargeHint);
   document.body.appendChild(root);
 
   const resetControls = (): void => {
@@ -353,7 +362,7 @@ export function initTouchControls(): void {
     charge.classList.toggle('charge-active', active);
     charge.classList.toggle('charge-full', detail.full);
     charge.textContent = detail.full ? 'FULL' : active ? 'CHARGING' : 'CHARGE';
-    charge.setAttribute('aria-label', detail.full ? 'Full charge' : active ? 'Charging' : 'Charge');
+    charge.setAttribute('aria-label', detail.full ? 'Full charge. ' + CHARGE_SCAN_HINT : active ? 'Charging. ' + CHARGE_SCAN_HINT : 'Charge. ' + CHARGE_SCAN_HINT);
   });
   addEventListener('blur', resetControls);
   addEventListener('pagehide', resetControls);

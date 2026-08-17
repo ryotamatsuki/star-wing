@@ -111,10 +111,10 @@ export const STAGE_ENCOUNTERS: EncounterDefinition[][] = [
       { type: 'straight', x: -9, y: 7, count: 3, gap: 0.3 },
     ], 'The mine pattern changes the route while the sniper watches.'),
     encounter('s4-pressure-2', 48, [
-      { type: 'missileCarrier', x: 0, y: 7, count: 1 },
-      { type: 'kamikaze', x: -7, y: 5, count: 3, gap: 0.5 },
-      { type: 'kamikaze', x: 7, y: 5, count: 3, gap: 0.5 },
-    ], 'Prioritize the closest threat, then break the next lock.'),
+      { type: 'heavyGunship', x: 0, y: 7, count: 1 },
+      { type: 'kamikaze', x: -7, y: 5, count: 2, gap: 0.5 },
+      { type: 'kamikaze', x: 7, y: 5, count: 2, gap: 0.5 },
+    ], 'BREAK SYSTEMS -> EXPOSE CORE'),
   ],
   [
     encounter('s5-opening', 1, [fighterPair('straight', -5, 6, 4, 0.2), fighterPair('straight', 5, 6, 4, 0.2)]),
@@ -135,10 +135,10 @@ export const STAGE_ENCOUNTERS: EncounterDefinition[][] = [
       { type: 'kamikaze', x: 6, y: 5, count: 3, gap: 0.5 },
     ], 'Shorten the fight: remove rushers and roll through the lock.'),
     encounter('s5-timing-finale', 55, [
-      { type: 'armoredFighter', x: 0, y: 8, count: 1 },
+      { type: 'heavyGunship', x: 0, y: 8, count: 1 },
       { type: 'sniper', x: -8, y: 8, count: 1, gap: 0.6 },
       { type: 'mineLayer', x: 8, y: 6, count: 1, gap: 0.6 },
-      { type: 'straight', x: 0, y: 10, count: 6, gap: 0.25 },
+      { type: 'straight', x: 0, y: 10, count: 4, gap: 0.25 },
     ], 'Final exam: aim, route, timing, and threat priority together.'),
   ],
 ];

@@ -97,6 +97,23 @@ export function spawnTextPopup(pos: THREE.Vector3, text: string, color = '#ffff5
   popups.push({ sprite, mat, life: 1.4, maxLife: 1.4 });
 }
 
+/** Event-driven Phase 2D feedback for removing a destructible part. */
+export function spawnPartDestroyFeedback(pos: THREE.Vector3, color = 0xffaa44): void {
+  spawnExplosion(pos, 12, color);
+  spawnTextPopup(pos, 'PART DOWN', '#ffcc66');
+}
+
+/** Event-driven Phase 2D feedback for opening a heavy enemy's core window. */
+export function spawnCoreExposeFeedback(pos: THREE.Vector3): void {
+  spawnExplosion(pos, 8, 0xffe477);
+  spawnTextPopup(pos, 'CORE EXPOSED', '#ffe477');
+}
+
+/** Event-driven Phase 2D feedback for a successful hit on the exposed core. */
+export function spawnCoreHitFeedback(pos: THREE.Vector3): void {
+  spawnExplosion(pos, 5, 0xffaa00);
+}
+
 export function updateEffects(dt: number): void {
   // パーティクル更新
   for (let i = particles.length - 1; i >= 0; i--) {
